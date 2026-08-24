@@ -56,48 +56,79 @@ export default async function handler(req, res) {
     }
   }
 
-  // 2. Otherwise use Groq (Fast & Free)
-  // Active models on Groq: llama-3.3-70b-versatile (primary), llama-3.1-8b-instant (fast fallback)
-  const primaryModel = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
-  const fallbackModel = "llama-3.1-8b-instant";
+  // 2. Groq AI — dynamically test prioritized models or use GROQ_MODEL
+  const candidateModels = [
+    process.env.GROQ_MODEL,
+    "openai/gpt-oss-120b",
+    "groq/compound",
+    "openai/gpt-oss-20b",
+    "groq/compound-mini",
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "llama3-70b-8192",
+  ].filter(Boolean);
 
-  const callGroq = async (modelName) => {
-    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${groqApiKey}`,
-      },
-      body: JSON.stringify({
-        model: modelName,
-        max_tokens: 1200,
-        temperature: 0.7,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-    const data = await response.json();
-    return { ok: response.ok, status: response.status, data };
-  };
-
+  // Try to find list of active models directly from Groq if possible
+  let modelList = candidateModels;
   try {
-    let result = await callGroq(primaryModel);
-
-    // If primary model fails due to model deprecation or rate limit, retry with fallback model
-    if (!result.ok && result.status !== 401 && primaryModel !== fallbackModel) {
-      result = await callGroq(fallbackModel);
+    const listRes = await fetch("https://api.groq.com/openai/v1/models", {
+      headers: { "Authorization": `Bearer ${groqApiKey}` },
+    });
+    if (listRes.ok) {
+      const listData = await listRes.json();
+      const activeIds = new Set(listData.data?.map(m => m.id) || []);
+      const matched = candidateModels.filter(m => activeIds.has(m));
+      if (matched.length > 0) {
+        modelList = matched;
+      } else if (listData.data?.length > 0) {
+        // Filter out whisper and guard models, pick first text chat model
+        const chatModels = listData.data
+          .map(m => m.id)
+          .filter(id => !id.includes("whisper") && !id.includes("guard") && !id.includes("embed"));
+        if (chatModels.length > 0) modelList = chatModels;
+      }
     }
-
-    if (!result.ok) {
-      const errMsg = result.data?.error?.message || JSON.stringify(result.data);
-      return res.status(result.status).json({
-        error: { message: `Groq API error (${result.status}): ${errMsg}` },
-      });
-    }
-
-    const text = result.data.choices?.[0]?.message?.content ?? "";
-    return res.status(200).json({ text });
-  } catch (err) {
-    return res.status(500).json({ error: { message: `Server error: ${err.message}` } });
+  } catch (e) {
+    // Fallback to static candidate list
   }
+
+  let lastError = null;
+  for (const modelName of modelList) {
+    try {
+      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${groqApiKey}`,
+        },
+        body: JSON.stringify({
+          model: modelName,
+          max_tokens: 1200,
+          temperature: 0.7,
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        const text = data.choices?.[0]?.message?.content ?? "";
+        return res.status(200).json({ text, model: modelName });
+      }
+
+      lastError = data?.error?.message || JSON.stringify(data);
+      // If error is 401 Unauthorized, no need to try other models
+      if (response.status === 401) {
+        return res.status(401).json({
+          error: { message: `Groq API Key ไม่ถูกต้อง (401 Unauthorized): ${lastError}` },
+        });
+      }
+    } catch (err) {
+      lastError = err.message;
+    }
+  }
+
+  return res.status(500).json({
+    error: { message: `ไม่สามารถเรียก Groq API ได้: ${lastError}` },
+  });
 }
 
