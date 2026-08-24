@@ -51,11 +51,19 @@ export default function App() {
         }
       }
 
+      // ── Build Greeks / Mark Lookup Map ────────────────────────────────────
+      const marksMap = new Map();
+      if (Array.isArray(marksData)) {
+        for (const m of marksData) {
+          if (m.symbol) marksMap.set(m.symbol, m);
+        }
+      }
+
       // ── Option positions ────────────────────────────────────────────────────
       if (Array.isArray(posData)) {
         const mapped = posData
-          .filter(p => Number(p.quantity) !== 0)
-          .map(mapBinancePosition);
+          .filter(p => Number(p.quantity || p.positionAmount) !== 0)
+          .map(p => mapBinancePosition(p, marksMap.get(p.symbol) || {}));
         setPositions(mapped);
         setConnError(null);
 
