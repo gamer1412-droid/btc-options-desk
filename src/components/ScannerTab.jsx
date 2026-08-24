@@ -31,84 +31,95 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}
   return (
     <div style={{ padding: "0 24px 32px", display: "flex", flexDirection: "column", gap: 20 }}>
 
-      {/* Account Balance & Risk Header Banner */}
+      {/* Account Balance & Margin Overview Banner */}
       {accountInfo && (
         <div style={{
           background: `linear-gradient(135deg, ${T.bg2}, ${T.bg1})`,
-          border: `1px solid ${T.blue}33`,
-          borderRadius: 10, padding: "14px 20px",
-          display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 16,
+          border: `1px solid ${T.blue}28`,
+          borderRadius: 12,
+          padding: "16px 20px",
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+          gap: 16,
+          boxShadow: `0 4px 20px rgba(0,0,0,0.25)`,
         }}>
           <div>
-            <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 2, fontFamily: T.font }}>EQUITY</div>
-            <div style={{ color: T.blue, fontFamily: T.font, fontSize: 18, fontWeight: 700 }}>
+            <div style={{ color: T.textSecondary, fontSize: 10, letterSpacing: 1.5, fontFamily: T.fontSans, fontWeight: 600 }}>EQUITY (พอร์ตรวม)</div>
+            <div style={{ color: T.blue, fontFamily: T.font, fontSize: 20, fontWeight: 800, marginTop: 2 }}>
               {fmtUSD(accountInfo.equity)}
             </div>
           </div>
           <div>
-            <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 2, fontFamily: T.font }}>BALANCE</div>
-            <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 15, fontWeight: 700 }}>
+            <div style={{ color: T.textSecondary, fontSize: 10, letterSpacing: 1.5, fontFamily: T.fontSans, fontWeight: 600 }}>WALLET BALANCE</div>
+            <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 16, fontWeight: 700, marginTop: 4 }}>
               {fmtUSD(accountInfo.balance)}
             </div>
           </div>
           <div>
-            <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 2, fontFamily: T.font }}>MARGIN USED (MAX 30%)</div>
-            <div style={{ color: accountInfo.marginPct > 28 ? T.red : accountInfo.marginPct > 20 ? T.amber : T.green, fontFamily: T.font, fontSize: 15, fontWeight: 700 }}>
-              {fmtUSD(accountInfo.marginUsed)} <span style={{ fontSize: 11, color: T.textSecondary }}>({accountInfo.marginPct}% / 30%)</span>
+            <div style={{ color: T.textSecondary, fontSize: 10, letterSpacing: 1.5, fontFamily: T.fontSans, fontWeight: 600 }}>MARGIN USED (MAX 30%)</div>
+            <div style={{
+              color: accountInfo.marginPct > 28 ? T.red : accountInfo.marginPct > 20 ? T.amber : T.green,
+              fontFamily: T.font, fontSize: 16, fontWeight: 700, marginTop: 4,
+            }}>
+              {fmtUSD(accountInfo.marginUsed)} <span style={{ fontSize: 11, color: T.textSecondary, fontWeight: 500 }}>({accountInfo.marginPct}% / 30%)</span>
             </div>
           </div>
           <div>
-            <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 2, fontFamily: T.font }}>AVAILABLE</div>
-            <div style={{ color: T.green, fontFamily: T.font, fontSize: 15, fontWeight: 700 }}>
+            <div style={{ color: T.textSecondary, fontSize: 10, letterSpacing: 1.5, fontFamily: T.fontSans, fontWeight: 600 }}>AVAILABLE (พร้อมเทรด)</div>
+            <div style={{ color: T.green, fontFamily: T.font, fontSize: 16, fontWeight: 700, marginTop: 4 }}>
               {fmtUSD(accountInfo.availableBalance)}
             </div>
           </div>
           <div>
-            <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 2, fontFamily: T.font }}>UNREALIZED P&L</div>
-            <div style={{ color: accountInfo.unrealizedPnl >= 0 ? T.green : T.red, fontFamily: T.font, fontSize: 15, fontWeight: 700 }}>
+            <div style={{ color: T.textSecondary, fontSize: 10, letterSpacing: 1.5, fontFamily: T.fontSans, fontWeight: 600 }}>UNREALIZED P&L</div>
+            <div style={{
+              color: accountInfo.unrealizedPnl >= 0 ? T.green : T.red,
+              fontFamily: T.font, fontSize: 16, fontWeight: 700, marginTop: 4,
+            }}>
               {accountInfo.unrealizedPnl >= 0 ? "+" : ""}{fmtUSD(accountInfo.unrealizedPnl)}
             </div>
           </div>
         </div>
       )}
 
-      {/* Production Rules Criteria Banner */}
+      {/* Criteria Engine Banner */}
       <div style={{
-        background: T.bg2, border: `1px solid ${T.border}`, borderRadius: 10,
-        padding: "16px 20px", display: "flex", justifyContent: "space-between",
-        alignItems: "center", flexWrap: "wrap", gap: 16,
+        background: T.bg2,
+        border: `1px solid ${T.border}`,
+        borderRadius: 12,
+        padding: "16px 20px",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        flexWrap: "wrap",
+        gap: 16,
       }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
             <span style={{ fontSize: 14 }}>🎯</span>
-            <span style={{ color: T.green, fontWeight: 700, fontSize: 13, letterSpacing: 2, fontFamily: T.font }}>
-              PRODUCTION TRADING RULES v2.0 ENGINE
+            <span style={{ color: T.green, fontWeight: 800, fontSize: 13, letterSpacing: 1.5, fontFamily: T.fontSans }}>
+              SHORT STRANGLE ENTRY SCANNER v2.0
             </span>
           </div>
-          <div style={{ color: T.textSecondary, fontSize: 12, fontFamily: "'Inter', sans-serif" }}>
-            ระบบตรวจสอบกฎ 10 ข้ออัตโนมัติ: Delta (0.15–0.20), DTE (18–25 วัน), IV Rank (≥30%), MA20 Regime (≤7%), Max Margin 30%, Max Trade 3%
+          <div style={{ color: T.textSecondary, fontSize: 12, fontFamily: T.fontSans }}>
+            สแกนหาคู่สัญญาจาก Binance Options ตามเกณฑ์ Delta (0.15–0.20), DTE (18–25 วัน), IV Rank (≥30%) อัตโนมัติ
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <Pill color={T.green}>DTE 18–25d ★ PREFERRED</Pill>
           <Pill color={T.amber}>PUT Δ 0.15~0.20</Pill>
           <Pill color={T.blue}>CALL Δ 0.15~0.20</Pill>
           <Pill color={T.purple}>IVR ≥ 30%</Pill>
-          {marketContext.distFromMA20 != null && (
-            <Pill color={Math.abs(marketContext.distFromMA20) > 10 ? T.red : Math.abs(marketContext.distFromMA20) > 7 ? T.amber : T.green}>
-              MA20: {marketContext.distFromMA20 >= 0 ? "+" : ""}{marketContext.distFromMA20}%
-            </Pill>
-          )}
         </div>
       </div>
 
       {opportunities.length === 0 ? (
-        <div style={{ padding: 60, textAlign: "center", color: T.textMuted, fontFamily: T.font, fontSize: 13, background: T.bg1, borderRadius: 10, border: `1px solid ${T.border}` }}>
+        <div style={{ padding: 60, textAlign: "center", color: T.textMuted, fontFamily: T.fontSans, fontSize: 13, background: T.bg1, borderRadius: 12, border: `1px solid ${T.border}` }}>
           ⏳ กำลังสแกนตลาด หรือยังไม่พบคู่สัญญาที่เข้าเกณฑ์ Delta / DTE ในขณะนี้...
         </div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))", gap: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(440px, 1fr))", gap: 18 }}>
           {opportunities.map((opp) => {
             const isSent = sentMap[opp.id] === "sent";
             const isSending = sentMap[opp.id] === "sending";
@@ -122,33 +133,40 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}
 
             return (
               <div key={opp.id} style={{
-                background: T.bg1,
-                border: `1px solid ${evaluation.isBlocked ? T.red + "44" : opp.isPreferredDTE ? T.greenMid : T.border}`,
-                borderRadius: 12, padding: 20, display: "flex", flexDirection: "column", gap: 16,
-                boxShadow: opp.isPreferredDTE && !evaluation.isBlocked ? `0 0 20px ${T.green}11` : "none",
+                background: `linear-gradient(180deg, ${T.bg1}, ${T.bg0})`,
+                border: `1px solid ${evaluation.isBlocked ? T.red + "35" : opp.isPreferredDTE ? T.greenMid : T.border}`,
+                borderRadius: 14,
+                padding: 20,
+                display: "flex",
+                flexDirection: "column",
+                gap: 16,
+                boxShadow: opp.isPreferredDTE && !evaluation.isBlocked
+                  ? `0 6px 24px rgba(0,0,0,0.3), 0 0 25px ${T.green}10`
+                  : "0 4px 16px rgba(0,0,0,0.2)",
                 position: "relative",
+                transition: "border 0.2s ease",
               }}>
                 {/* Card Top */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${T.border}`, paddingBottom: 12 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <span style={{ color: T.textPrimary, fontFamily: T.font, fontWeight: 700, fontSize: 15 }}>
+                    <span style={{ color: T.textPrimary, fontFamily: T.fontSans, fontWeight: 700, fontSize: 15 }}>
                       📅 {opp.expiry}
                     </span>
                     <Pill color={opp.isPreferredDTE ? T.green : opp.isIdealDTE ? T.blue : T.textSecondary}>
                       {opp.dte} วัน {opp.isPreferredDTE ? "★ PREFERRED" : opp.isIdealDTE ? "IDEAL" : ""}
                     </Pill>
                     {opp.isFullyHeld ? (
-                      <Pill color={T.blue}>✓ ถือในพอร์ตแล้ว (OPENED)</Pill>
+                      <Pill color={T.blue}>✓ ถือในพอร์ตแล้ว</Pill>
                     ) : opp.isPutHeld ? (
-                      <Pill color={T.amber}>✓ ถือขา Put แล้ว</Pill>
+                      <Pill color={T.amber}>✓ มี Put ในพอร์ต</Pill>
                     ) : opp.isCallHeld ? (
-                      <Pill color={T.blue}>✓ ถือขา Call แล้ว</Pill>
+                      <Pill color={T.blue}>✓ มี Call ในพอร์ต</Pill>
                     ) : null}
                   </div>
 
                   <div style={{ textAlign: "right" }}>
-                    <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 1 }}>BTC SPOT</div>
-                    <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 13, fontWeight: 700 }}>
+                    <div style={{ color: T.textSecondary, fontSize: 9, letterSpacing: 1.5, fontFamily: T.fontSans }}>BTC SPOT</div>
+                    <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 14, fontWeight: 700 }}>
                       {fmtUSD(opp.btcPrice)}
                     </div>
                   </div>
@@ -157,9 +175,12 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}
                 {/* Rules Engine Decision Banner */}
                 <div style={{
                   background: evaluation.isBlocked ? T.redDim : evaluation.isWarning ? T.amberDim : T.greenDim,
-                  border: `1px solid ${evaluation.isBlocked ? T.red + "44" : evaluation.isWarning ? T.amber + "44" : T.greenMid}`,
-                  borderRadius: 8, padding: "10px 14px",
-                  display: "flex", flexDirection: "column", gap: 6,
+                  border: `1px solid ${evaluation.isBlocked ? T.red + "35" : evaluation.isWarning ? T.amber + "35" : T.greenMid}`,
+                  borderRadius: 8,
+                  padding: "10px 14px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 6,
                 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -168,7 +189,7 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}
                       </span>
                       <span style={{
                         color: evaluation.isBlocked ? T.red : evaluation.isWarning ? T.amber : T.green,
-                        fontFamily: T.font, fontWeight: 700, fontSize: 11, letterSpacing: 1,
+                        fontFamily: T.fontSans, fontWeight: 700, fontSize: 11, letterSpacing: 0.5,
                       }}>
                         {evaluation.isBlocked
                           ? "ENTRY DECISION: BLOCKED"
@@ -182,7 +203,7 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}
                       onClick={() => toggleChecklist(opp.id)}
                       style={{
                         background: "none", border: "none", color: T.textSecondary,
-                        cursor: "pointer", fontFamily: T.font, fontSize: 10, textDecoration: "underline",
+                        cursor: "pointer", fontFamily: T.fontSans, fontSize: 11, textDecoration: "underline",
                       }}
                     >
                       {isChecklistOpen ? "ซ่อน Checklist ▲" : "ดู Checklist (10 กฎ) ▼"}
@@ -191,7 +212,7 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}
 
                   {/* Reasons Preview when blocked or warning */}
                   {evaluation.reasons.length > 0 && !isChecklistOpen && (
-                    <div style={{ color: T.textSecondary, fontSize: 11, fontFamily: "'Inter', sans-serif", marginTop: 2 }}>
+                    <div style={{ color: T.textSecondary, fontSize: 11, fontFamily: T.fontSans, marginTop: 2, lineHeight: 1.4 }}>
                       {evaluation.reasons.slice(0, 2).map((r, i) => (
                         <div key={i}>{r}</div>
                       ))}
@@ -202,7 +223,7 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}
                   {isChecklistOpen && (
                     <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}`, display: "flex", flexDirection: "column", gap: 6 }}>
                       {evaluation.checks.map((chk, i) => (
-                        <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11 }}>
+                        <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, fontFamily: T.fontSans }}>
                           <span style={{ color: T.textSecondary }}>{chk.icon} {chk.rule}:</span>
                           <span style={{
                             color: chk.status === "PASS" ? T.green : chk.status === "WARNING" ? T.amber : T.red,
@@ -220,14 +241,14 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                   {/* Put Leg */}
                   <div style={{
-                    background: T.bg2, border: `1px solid ${T.amber}33`,
+                    background: T.bg2, border: `1px solid ${T.amber}28`,
                     borderLeft: `3px solid ${T.amber}`, borderRadius: 8, padding: 12,
                   }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                      <span style={{ color: T.amber, fontWeight: 700, fontSize: 11, letterSpacing: 1 }}>SHORT PUT</span>
-                      <span style={{ color: T.textSecondary, fontSize: 10 }}>-{opp.putDistancePct}%</span>
+                      <span style={{ color: T.amber, fontWeight: 700, fontSize: 11, letterSpacing: 1, fontFamily: T.fontSans }}>SHORT PUT</span>
+                      <span style={{ color: T.textSecondary, fontSize: 10, fontFamily: T.font }}>-{opp.putDistancePct}%</span>
                     </div>
-                    <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 17, fontWeight: 700 }}>
+                    <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 17, fontWeight: 800 }}>
                       {fmtUSD(opp.putStrike)}
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 11, color: T.textSecondary, fontFamily: T.font }}>
@@ -238,14 +259,14 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}
 
                   {/* Call Leg */}
                   <div style={{
-                    background: T.bg2, border: `1px solid ${T.blue}33`,
+                    background: T.bg2, border: `1px solid ${T.blue}28`,
                     borderLeft: `3px solid ${T.blue}`, borderRadius: 8, padding: 12,
                   }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                      <span style={{ color: T.blue, fontWeight: 700, fontSize: 11, letterSpacing: 1 }}>SHORT CALL</span>
-                      <span style={{ color: T.textSecondary, fontSize: 10 }}>+{opp.callDistancePct}%</span>
+                      <span style={{ color: T.blue, fontWeight: 700, fontSize: 11, letterSpacing: 1, fontFamily: T.fontSans }}>SHORT CALL</span>
+                      <span style={{ color: T.textSecondary, fontSize: 10, fontFamily: T.font }}>+{opp.callDistancePct}%</span>
                     </div>
-                    <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 17, fontWeight: 700 }}>
+                    <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 17, fontWeight: 800 }}>
                       {fmtUSD(opp.callStrike)}
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 11, color: T.textSecondary, fontFamily: T.font }}>
@@ -257,26 +278,27 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}
 
                 {/* Strangle Summary */}
                 <div style={{
-                  background: T.bg3, borderRadius: 8, padding: "12px 14px",
+                  background: T.bg2, borderRadius: 8, padding: "12px 14px",
                   display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10,
+                  border: `1px solid ${T.border}`,
                 }}>
                   <div>
-                    <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 1 }}>PREMIUM รวม</div>
-                    <div style={{ color: T.green, fontFamily: T.font, fontSize: 16, fontWeight: 700 }}>
-                      +${opp.totalPremium} <span style={{ fontSize: 10, color: T.textSecondary }}>/ 1 BTC</span>
+                    <div style={{ color: T.textSecondary, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>PREMIUM รวม</div>
+                    <div style={{ color: T.green, fontFamily: T.font, fontSize: 16, fontWeight: 800 }}>
+                      +${opp.totalPremium} <span style={{ fontSize: 10, color: T.textSecondary, fontWeight: 400 }}>/ 1 BTC</span>
                     </div>
                   </div>
 
                   <div>
-                    <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 1 }}>THETA DECAY</div>
+                    <div style={{ color: T.textSecondary, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>THETA DECAY</div>
                     <div style={{ color: T.green, fontFamily: T.font, fontSize: 14, fontWeight: 700 }}>
-                      +${opp.totalTheta} <span style={{ fontSize: 10, color: T.textSecondary }}>/ วัน</span>
+                      +${opp.totalTheta} <span style={{ fontSize: 10, color: T.textSecondary, fontWeight: 400 }}>/ วัน</span>
                     </div>
                   </div>
 
                   <div style={{ textAlign: "right" }}>
-                    <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 1 }}>SAFE ZONE (BREAKEVEN)</div>
-                    <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 12 }}>
+                    <div style={{ color: T.textSecondary, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>SAFE ZONE (BREAKEVEN)</div>
+                    <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 12, fontWeight: 600 }}>
                       ${opp.breakevenLow?.toLocaleString()} – ${opp.breakevenHigh?.toLocaleString()}
                     </div>
                   </div>
@@ -286,11 +308,11 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}
                 {sizing.available && (
                   <div style={{
                     background: `linear-gradient(135deg, ${T.bg2}, ${T.bg3})`,
-                    border: `1px solid ${T.blue}33`,
+                    border: `1px solid ${T.blue}24`,
                     borderRadius: 8, padding: "12px 14px",
                   }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                      <span style={{ color: T.blue, fontWeight: 700, fontSize: 10, letterSpacing: 2, fontFamily: T.font }}>
+                      <span style={{ color: T.blue, fontWeight: 700, fontSize: 10, letterSpacing: 1.5, fontFamily: T.fontSans }}>
                         📐 POSITION SIZING (MAX 3% PER TRADE)
                       </span>
                       {sizing.recommendedLot && !evaluation.isBlocked && (
@@ -310,14 +332,13 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}
                             key={lot.size}
                             onClick={() => setSelectedSize(prev => ({ ...prev, [opp.id]: lot.size }))}
                             style={{
-                              padding: "5px 10px", borderRadius: 5, cursor: "pointer",
+                              padding: "5px 10px", borderRadius: 6, cursor: "pointer",
                               fontFamily: T.font, fontSize: 11, fontWeight: 700,
-                              letterSpacing: 1,
                               background: isSelected ? (lot.canAfford ? T.greenDim : T.redDim) : T.bg1,
                               border: `1px solid ${isSelected ? (lot.canAfford ? T.greenMid : T.red + "44") : T.border}`,
                               color: isSelected ? (lot.canAfford ? T.green : T.red) : (lot.canAfford ? T.textSecondary : T.textMuted),
                               opacity: lot.canAfford ? 1 : 0.5,
-                              position: "relative",
+                              transition: "all 0.15s ease",
                             }}
                           >
                             {lot.label}
@@ -334,46 +355,46 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}
                         gap: 8, background: T.bg1, borderRadius: 6, padding: "10px 12px",
                       }}>
                         <div>
-                          <div style={{ color: T.textMuted, fontSize: 8, letterSpacing: 1 }}>AMOUNT</div>
+                          <div style={{ color: T.textSecondary, fontSize: 8, letterSpacing: 1, fontFamily: T.fontSans }}>AMOUNT</div>
                           <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 14, fontWeight: 700 }}>
                             {chosenLot.label} <span style={{ fontSize: 10, color: T.textSecondary }}>BTC</span>
                           </div>
                         </div>
                         <div>
-                          <div style={{ color: T.textMuted, fontSize: 8, letterSpacing: 1 }}>MARGIN ≈</div>
+                          <div style={{ color: T.textSecondary, fontSize: 8, letterSpacing: 1, fontFamily: T.fontSans }}>MARGIN ≈</div>
                           <div style={{ color: T.amber, fontFamily: T.font, fontSize: 14, fontWeight: 700 }}>
                             ${chosenLot.marginRequired.toLocaleString()}
                           </div>
-                          <div style={{ color: T.textMuted, fontSize: 9 }}>
+                          <div style={{ color: T.textMuted, fontSize: 9, fontFamily: T.fontSans }}>
                             ({chosenLot.marginPctOfEquity}% of equity)
                           </div>
                         </div>
                         <div>
-                          <div style={{ color: T.textMuted, fontSize: 8, letterSpacing: 1 }}>PREMIUM รับ</div>
+                          <div style={{ color: T.textSecondary, fontSize: 8, letterSpacing: 1, fontFamily: T.fontSans }}>PREMIUM รับ</div>
                           <div style={{ color: T.green, fontFamily: T.font, fontSize: 14, fontWeight: 700 }}>
                             +${chosenLot.premiumReceived.toLocaleString()}
                           </div>
                         </div>
                         <div>
-                          <div style={{ color: T.textMuted, fontSize: 8, letterSpacing: 1 }}>THETA / วัน</div>
+                          <div style={{ color: T.textSecondary, fontSize: 8, letterSpacing: 1, fontFamily: T.fontSans }}>THETA / วัน</div>
                           <div style={{ color: T.green, fontFamily: T.font, fontSize: 12, fontWeight: 700 }}>
                             +${chosenLot.thetaPerDay}
                           </div>
                         </div>
                         <div>
-                          <div style={{ color: T.textMuted, fontSize: 8, letterSpacing: 1 }}>MAX LOSS (2×)</div>
+                          <div style={{ color: T.textSecondary, fontSize: 8, letterSpacing: 1, fontFamily: T.fontSans }}>MAX LOSS (2×)</div>
                           <div style={{ color: T.red, fontFamily: T.font, fontSize: 12, fontWeight: 700 }}>
                             -${chosenLot.maxLoss.toLocaleString()}
                           </div>
-                          <div style={{ color: T.textMuted, fontSize: 9 }}>
+                          <div style={{ color: T.textMuted, fontSize: 9, fontFamily: T.fontSans }}>
                             ({chosenLot.riskPct}% of port)
                           </div>
                         </div>
                         <div>
-                          <div style={{ color: T.textMuted, fontSize: 8, letterSpacing: 1 }}>STATUS</div>
+                          <div style={{ color: T.textSecondary, fontSize: 8, letterSpacing: 1, fontFamily: T.fontSans }}>STATUS</div>
                           <div style={{
                             color: evaluation.isBlocked ? T.red : chosenLot.isRecommended ? T.green : (!chosenLot.canAfford ? T.red : T.amber),
-                            fontFamily: T.font, fontSize: 10, fontWeight: 700,
+                            fontFamily: T.fontSans, fontSize: 10, fontWeight: 700,
                           }}>
                             {evaluation.isBlocked
                               ? "❌ BLOCKED"
@@ -392,12 +413,34 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}
                   <button
                     onClick={() => onAnalyzeStrangle(opp)}
                     style={{
-                      flex: 1, background: T.greenDim, border: `1px solid ${T.greenMid}`,
-                      color: T.green, borderRadius: 6, padding: "8px 12px", cursor: "pointer",
-                      fontFamily: T.font, fontSize: 11, fontWeight: 700, letterSpacing: 1,
+                      flex: 1,
+                      background: T.greenDim,
+                      border: `1px solid ${T.greenMid}`,
+                      color: T.green,
+                      borderRadius: 8,
+                      padding: "10px 14px",
+                      cursor: "pointer",
+                      fontFamily: T.fontSans,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      letterSpacing: 0.5,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 6,
+                      transition: "all 0.2s ease",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = T.green;
+                      e.currentTarget.style.color = T.bg0;
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = T.greenDim;
+                      e.currentTarget.style.color = T.green;
                     }}
                   >
-                    🧠 AI ANALYZE SETUP
+                    <span>🧠</span>
+                    <span>AI ANALYZE SETUP</span>
                   </button>
 
                   <button
@@ -407,13 +450,22 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}
                       background: isSent ? T.green : evaluation.isBlocked ? T.bg3 : T.bg2,
                       border: `1px solid ${isSent ? T.green : T.border}`,
                       color: isSent ? T.bg0 : evaluation.isBlocked ? T.textMuted : T.textPrimary,
-                      borderRadius: 6, padding: "8px 14px", cursor: evaluation.isBlocked ? "not-allowed" : "pointer",
-                      fontFamily: T.font, fontSize: 11, fontWeight: 700, letterSpacing: 1,
-                      display: "flex", alignItems: "center", gap: 6, opacity: evaluation.isBlocked ? 0.6 : 1,
+                      borderRadius: 8,
+                      padding: "10px 16px",
+                      cursor: evaluation.isBlocked ? "not-allowed" : "pointer",
+                      fontFamily: T.fontSans,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      letterSpacing: 0.5,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      opacity: evaluation.isBlocked ? 0.5 : 1,
+                      transition: "all 0.2s ease",
                     }}
                   >
                     <span>📨</span>
-                    {isSending ? "SENDING..." : isSent ? "✓ SENT" : "SEND TELEGRAM"}
+                    <span>{isSending ? "SENDING..." : isSent ? "✓ SENT" : "TELEGRAM"}</span>
                   </button>
                 </div>
               </div>

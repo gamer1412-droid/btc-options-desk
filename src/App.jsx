@@ -148,52 +148,74 @@ export default function App() {
   const warnings   = positions.filter(p => p.status === "warning" || p.status === "danger").length;
 
   const tabStyle = (t) => ({
-    padding: "8px 20px", cursor: "pointer", fontFamily: T.font, fontSize: 12,
-    fontWeight: 700, letterSpacing: 2, border: "none",
-    background: tab === t ? T.greenDim : "transparent",
+    padding: "8px 18px",
+    cursor: "pointer",
+    fontFamily: T.fontSans,
+    fontSize: 12,
+    fontWeight: 700,
+    letterSpacing: 1,
+    border: "none",
+    borderRadius: "8px 8px 0 0",
+    background: tab === t ? `linear-gradient(180deg, ${T.bg2}, ${T.bg1})` : "transparent",
     color: tab === t ? T.green : T.textSecondary,
     borderBottom: tab === t ? `2px solid ${T.green}` : "2px solid transparent",
+    transition: "all 0.2s ease",
   });
 
   return (
-    <div style={{ background: T.bg0, minHeight: "100vh", color: T.textPrimary, fontFamily: T.font }}>
+    <div style={{ background: T.bg0, minHeight: "100vh", color: T.textPrimary, fontFamily: T.fontSans }}>
 
       {/* ── Top Bar ─────────────────────────────────────────────────────────── */}
       <div style={{
         display: "flex", justifyContent: "space-between", alignItems: "center",
-        padding: "12px 24px", background: T.bg1, borderBottom: `1px solid ${T.border}`,
-        position: "sticky", top: 0, zIndex: 10, flexWrap: "wrap", gap: 8,
+        padding: "14px 24px", background: `linear-gradient(180deg, ${T.bg1}, ${T.bg0})`,
+        borderBottom: `1px solid ${T.border}`,
+        position: "sticky", top: 0, zIndex: 10, flexWrap: "wrap", gap: 12,
+        backdropFilter: "blur(12px)",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ width: 8, height: 8, borderRadius: "50%", background: connError ? T.red : T.green, boxShadow: `0 0 8px ${connError ? T.red : T.green}` }} />
-          <span style={{ color: connError ? T.red : T.green, fontWeight: 700, fontSize: 14, letterSpacing: 3 }}>BTC OPTIONS DESK</span>
-          <span style={{ color: T.textMuted, fontSize: 11, letterSpacing: 1 }}>
-            {connError ? "CONNECTION ERROR" : loadingPositions ? "CONNECTING..." : "LIVE — PRODUCTION v2.0"}
+          <div style={{
+            width: 9, height: 9, borderRadius: "50%",
+            background: connError ? T.red : T.green,
+            boxShadow: `0 0 10px ${connError ? T.red : T.green}`,
+          }} />
+          <span style={{ color: T.textPrimary, fontWeight: 800, fontSize: 16, letterSpacing: 2, fontFamily: T.fontSans }}>
+            ⚡ BTC OPTIONS DESK
+          </span>
+          <span style={{
+            background: connError ? T.redDim : T.greenDim,
+            color: connError ? T.red : T.green,
+            border: `1px solid ${connError ? T.red + "44" : T.greenMid}`,
+            borderRadius: 6, padding: "2px 8px", fontSize: 10, fontWeight: 700, letterSpacing: 1,
+          }}>
+            {connError ? "ERROR" : "PROD v2.0"}
           </span>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
           {lastSync && (
-            <span style={{ color: T.textMuted, fontSize: 10 }}>
+            <span style={{ color: T.textMuted, fontSize: 11, fontFamily: T.font }}>
               Sync: {lastSync.toLocaleTimeString("th-TH")}
             </span>
           )}
 
           {/* Telegram alert toggle */}
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 12 }}>📨</span>
             <button
               id="alerts-toggle"
               onClick={() => setAlertsEnabled(v => !v)}
               style={{
-                background: alertsEnabled ? T.greenDim : T.bg3,
+                background: alertsEnabled ? T.greenDim : T.bg2,
                 border: `1px solid ${alertsEnabled ? T.greenMid : T.border}`,
                 color: alertsEnabled ? T.green : T.textMuted,
-                borderRadius: 5, padding: "4px 10px", cursor: "pointer",
-                fontFamily: T.font, fontSize: 10, fontWeight: 700, letterSpacing: 1,
+                borderRadius: 6, padding: "4px 10px", cursor: "pointer",
+                fontFamily: T.fontSans, fontSize: 11, fontWeight: 700, letterSpacing: 0.5,
+                display: "flex", alignItems: "center", gap: 5,
+                transition: "all 0.2s ease",
               }}
             >
-              ALERTS {alertsEnabled ? "ON" : "OFF"}
+              <span>📨</span>
+              <span>ALERTS {alertsEnabled ? "ON" : "OFF"}</span>
             </button>
 
             <button
@@ -208,10 +230,11 @@ export default function App() {
                 setTimeout(() => setTelegramStatus(null), 3000);
               }}
               style={{
-                background: T.bg3, border: `1px solid ${T.border}`,
+                background: T.bg2, border: `1px solid ${T.border}`,
                 color: telegramStatus === "ok" ? T.green : telegramStatus === "error" ? T.red : T.textSecondary,
-                borderRadius: 5, padding: "4px 10px", cursor: "pointer",
-                fontFamily: T.font, fontSize: 10, letterSpacing: 1,
+                borderRadius: 6, padding: "4px 10px", cursor: "pointer",
+                fontFamily: T.fontSans, fontSize: 11, fontWeight: 600,
+                transition: "all 0.2s ease",
               }}
             >
               {telegramStatus === "ok" ? "✓ SENT" : telegramStatus === "error" ? "✗ FAIL" : "TEST"}
@@ -219,21 +242,23 @@ export default function App() {
           </div>
 
           <div style={{ textAlign: "right" }}>
-            <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 2 }}>
+            <div style={{ color: T.textSecondary, fontSize: 10, letterSpacing: 1, fontFamily: T.fontSans }}>
               BTC / USDT {marketContext.change24h != null && (
-                <span style={{ color: marketContext.change24h >= 0 ? T.green : T.red, fontWeight: 600 }}>
+                <span style={{ color: marketContext.change24h >= 0 ? T.green : T.red, fontWeight: 700 }}>
                   ({marketContext.change24h >= 0 ? "+" : ""}{marketContext.change24h}%)
                 </span>
               )}
             </div>
-            <div style={{ color: T.textPrimary, fontSize: 18, fontWeight: 700 }}>{btcPrice ? fmtUSD(btcPrice) : "—"}</div>
+            <div style={{ color: T.textPrimary, fontSize: 18, fontWeight: 800, fontFamily: T.font }}>
+              {btcPrice ? fmtUSD(btcPrice) : "—"}
+            </div>
           </div>
         </div>
       </div>
 
       {/* ── Connection error banner ──────────────────────────────────────────── */}
       {connError && (
-        <div style={{ margin: "16px 24px 0", padding: 14, background: T.redDim, border: `1px solid ${T.red}44`, borderRadius: 8, color: T.red, fontSize: 12, fontFamily: T.font }}>
+        <div style={{ margin: "16px 24px 0", padding: 14, background: T.redDim, border: `1px solid ${T.red}44`, borderRadius: 8, color: T.red, fontSize: 12, fontFamily: T.fontSans }}>
           ⚠ เชื่อมต่อ Binance ไม่สำเร็จ: {connError}
           <div style={{ color: T.textSecondary, marginTop: 6, fontSize: 11 }}>
             ตรวจสอบว่าตั้งค่า BINANCE_API_KEY / BINANCE_API_SECRET ใน Vercel Environment Variables แล้ว และ API Key เปิดสิทธิ์ "Enable Reading"
@@ -252,7 +277,7 @@ export default function App() {
       </div>
 
       {/* ── Tabs ────────────────────────────────────────────────────────────── */}
-      <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, marginLeft: 24, gap: 4 }}>
+      <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, marginLeft: 24, marginRight: 24, gap: 4 }}>
         <button id="tab-positions" style={tabStyle("positions")} onClick={() => setTab("positions")}>
           POSITIONS ({positions.length})
         </button>

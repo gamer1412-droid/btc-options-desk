@@ -113,32 +113,59 @@ Respond in Thai language. Format your response as:
   }, [runAnalysis]);
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "#000000cc", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(4px)" }}>
-      <div style={{ background: T.bg1, border: `1px solid ${T.border}`, borderRadius: 12, width: "min(680px, 95vw)", maxHeight: "85vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: `0 0 60px ${T.green}22` }}>
+    <div style={{
+      position: "fixed", inset: 0,
+      background: "rgba(3, 5, 8, 0.85)",
+      backdropFilter: "blur(10px)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      zIndex: 1000, padding: 16,
+    }}>
+      <div style={{
+        background: `linear-gradient(180deg, ${T.bg1}, ${T.bg0})`,
+        border: `1px solid ${T.borderHover}`,
+        borderRadius: 16,
+        width: "100%", maxWidth: 740, maxHeight: "90vh",
+        display: "flex", flexDirection: "column",
+        boxShadow: "0 24px 48px rgba(0,0,0,0.6), 0 0 30px rgba(0, 229, 163, 0.08)",
+        overflow: "hidden",
+      }}>
         {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px", borderBottom: `1px solid ${T.border}`, background: T.bg2 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ width: 10, height: 10, borderRadius: "50%", background: T.green, boxShadow: `0 0 8px ${T.green}` }} />
-            <span style={{ color: T.green, fontFamily: T.font, fontWeight: 700, fontSize: 14, letterSpacing: 2 }}>AI ANALYSIS ENGINE</span>
+        <div style={{
+          padding: "16px 22px",
+          borderBottom: `1px solid ${T.border}`,
+          background: `linear-gradient(90deg, ${T.bg2}, ${T.bg1})`,
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+          flexWrap: "wrap", gap: 10,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 18 }}>🧠</span>
+            <span style={{ color: T.green, fontFamily: T.fontSans, fontWeight: 800, fontSize: 14, letterSpacing: 1.5 }}>
+              AI QUANT ANALYSIS
+            </span>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             {isStrangleSetup ? (
               <>
                 <Pill color={T.green}>SHORT STRANGLE</Pill>
-                <span style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 13 }}>
-                  Put {fmtUSD(pos.putStrike)} / Call {fmtUSD(pos.callStrike)}
+                <span style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 12, fontWeight: 600 }}>
+                  P{fmtUSD(pos.putStrike)} / C{fmtUSD(pos.callStrike)}
                 </span>
               </>
             ) : (
               <>
                 <Pill color={isCall ? T.blue : T.amber}>{pos.type}</Pill>
-                <span style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 14 }}>Strike {fmtUSD(pos.strike)}</span>
+                <span style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 13, fontWeight: 600 }}>
+                  Strike {fmtUSD(pos.strike)}
+                </span>
               </>
             )}
             <button
               id="analysis-panel-close"
               onClick={onClose}
-              style={{ background: "none", border: `1px solid ${T.border}`, color: T.textSecondary, borderRadius: 5, padding: "4px 10px", cursor: "pointer", fontFamily: T.font, fontSize: 12 }}
+              style={{
+                background: T.bg3, border: `1px solid ${T.border}`, color: T.textSecondary,
+                borderRadius: 6, padding: "5px 12px", cursor: "pointer", fontFamily: T.fontSans, fontSize: 12, fontWeight: 600,
+              }}
             >
               ✕ ปิด
             </button>
@@ -146,32 +173,50 @@ Respond in Thai language. Format your response as:
         </div>
 
         {/* Body */}
-        <div style={{ flex: 1, overflow: "auto", padding: 20 }}>
+        <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
           {loading && !analysisHtml && (
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: 40 }}>
-              <div style={{ display: "flex", gap: 6 }}>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "60px 0" }}>
+              <div style={{ display: "flex", gap: 8 }}>
                 {[0, 1, 2].map(i => (
-                  <div key={i} style={{ width: 8, height: 8, borderRadius: "50%", background: T.green, animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite` }} />
+                  <div key={i} style={{
+                    width: 10, height: 10, borderRadius: "50%",
+                    background: T.green,
+                    boxShadow: `0 0 10px ${T.green}`,
+                    animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite`,
+                  }} />
                 ))}
               </div>
-              <span style={{ color: T.textSecondary, fontFamily: T.font, fontSize: 12, letterSpacing: 2 }}>ANALYZING POSITION...</span>
+              <span style={{ color: T.textSecondary, fontFamily: T.fontSans, fontSize: 13, letterSpacing: 2, fontWeight: 600 }}>
+                กำลังประมวลผลข้อมูลตลาดและคำนวณความเสี่ยง...
+              </span>
             </div>
           )}
           {analysisHtml && (
             <div
-              style={{ color: T.textPrimary, fontFamily: "'Inter', sans-serif", fontSize: 14, lineHeight: 1.7, whiteSpace: "pre-wrap" }}
+              style={{ color: T.textPrimary, fontFamily: "'Inter', sans-serif", fontSize: 14, lineHeight: 1.75, whiteSpace: "pre-wrap" }}
               dangerouslySetInnerHTML={{ __html: analysisHtml }}
             />
           )}
         </div>
 
         {/* Footer */}
-        <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, background: T.bg2, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ color: T.textMuted, fontFamily: T.font, fontSize: 10, letterSpacing: 1 }}>⚠ AI ANALYSIS — ตัดสินใจเองเสมอ ไม่ใช่คำแนะนำทางการเงิน</span>
+        <div style={{
+          padding: "14px 22px",
+          borderTop: `1px solid ${T.border}`,
+          background: T.bg1,
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+          flexWrap: "wrap", gap: 10,
+        }}>
+          <span style={{ color: T.textMuted, fontFamily: T.fontSans, fontSize: 11 }}>
+            ⚠ AI Analysis — วิเคราะห์เพื่อเป็นข้อมูลประกอบการตัดสินใจตาม Risk Rules
+          </span>
           <button
             id="analysis-panel-refresh"
             onClick={runAnalysis}
-            style={{ background: T.greenDim, border: `1px solid ${T.greenMid}`, color: T.green, borderRadius: 5, padding: "6px 14px", cursor: "pointer", fontFamily: T.font, fontSize: 11, fontWeight: 700, letterSpacing: 1 }}
+            style={{
+              background: T.greenDim, border: `1px solid ${T.greenMid}`, color: T.green,
+              borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontFamily: T.fontSans, fontSize: 12, fontWeight: 700,
+            }}
           >
             ↺ REFRESH
           </button>
