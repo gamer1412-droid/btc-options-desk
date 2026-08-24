@@ -29,7 +29,7 @@ export default async function handler(req, res) {
         "Authorization": `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "mixtral-8x7b-32768", // Groq's fastest model, free tier
+        model: "llama-3.3-70b-versatile", // Groq's fastest model, free tier
         max_tokens: 1200,
         temperature: 0.7,
         messages: [{ role: "user", content: prompt }],
