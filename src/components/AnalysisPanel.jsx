@@ -56,7 +56,7 @@ Respond in Thai language. Format your response as:
         body: JSON.stringify({ prompt }),
       });
       const data = await response.json();
-      const rawText = data.text || data.error?.error?.message || "ไม่สามารถวิเคราะห์ได้";
+      const rawText = data.text || data.error?.message || data.error?.error?.message || (typeof data.error === "string" ? data.error : null) || "ไม่สามารถวิเคราะห์ได้";
       // XSS fix: escape HTML first, then inject only our known-safe styled spans
       setAnalysisHtml(renderAnalysisHtml(rawText));
     } catch (e) {
