@@ -311,26 +311,6 @@ export default function App() {
               </div>
             </>
           )}
-
-          {/* Quick rules reminder v2.0 */}
-          <div style={{ margin: "20px 24px 0", padding: 16, background: T.bg2, border: `1px solid ${T.amber}44`, borderRadius: 8, display: "flex", gap: 20, flexWrap: "wrap" }}>
-            <div style={{ color: T.amber, fontSize: 10, letterSpacing: 2, fontFamily: T.font, marginBottom: 4, width: "100%", fontWeight: 700 }}>
-              ⚡ PRODUCTION RULES v2.0 CHEATSHEET (SURVIVE FIRST, PROFIT SECOND)
-            </div>
-            {[
-              { rule: "TP 50%",         desc: "ปิดทำกำไรทันทีเมื่อได้ ≥ 50% ของ Premium หรือ ≥ 30% ภายใน 5 วันแรก" },
-              { rule: "HARD STOP",      desc: "Cut Loss ทันทีเมื่อ Loss = 2× Premium (ห้ามถัว / ห้ามถือลุ้น)" },
-              { rule: "DELTA DEFENSE",  desc: "Delta 0.35 Warning | 0.50 Defensive | 0.65 Hard Action (Close/Roll)" },
-              { rule: "MAX 1 ROLL",     desc: "Roll ได้สูงสุด 1 ครั้ง และต้องได้รับ Net Credit > 0 เสมอ (ห้าม Roll ซ้ำ)" },
-              { rule: "PORTFOLIO CAP",  desc: "ไม่เกิน 3% ต่อไม้ / Total Margin ไม่เกิน 30% / Worst-Case Risk ≤ 10%" },
-              { rule: "DTE EXIT",       desc: "ปิดก่อนหมดอายุเสมอเมื่อ DTE ≤ 2 วัน (ห้ามถือลุ้นจนวินาที 08:00 UTC)" },
-            ].map(({ rule, desc }) => (
-              <div key={rule} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <Pill color={T.amber}>{rule}</Pill>
-                <span style={{ color: T.textSecondary, fontSize: 12, fontFamily: T.font }}>{desc}</span>
-              </div>
-            ))}
-          </div>
         </div>
       )}
 
