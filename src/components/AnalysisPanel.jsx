@@ -7,14 +7,15 @@ export function AnalysisPanel({ pos, btcPrice, ivRank, onClose }) {
   const [analysisHtml, setAnalysisHtml] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const isStrangleSetup = pos?.strategy === "STRANGLE";
+  const isCall = Boolean(pos?.type?.includes("Call"));
+
   const runAnalysis = useCallback(async () => {
     setLoading(true);
     setAnalysisHtml("");
 
     // ivRank comes from parent (calculated from optionMarks) — may be null
     const ivRankStr = ivRank != null ? `${ivRank}%` : "ไม่มีข้อมูล (ดู IV ของ position แทน)";
-
-    const isStrangleSetup = pos.strategy === "STRANGLE";
 
     let prompt = "";
     if (isStrangleSetup) {
@@ -101,8 +102,6 @@ Respond in Thai language. Format your response as:
   }, [pos, btcPrice, ivRank]);
 
   useEffect(() => { runAnalysis(); }, [runAnalysis]);
-
-  const isCall = pos.type.includes("Call");
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "#000000cc", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(4px)" }}>
