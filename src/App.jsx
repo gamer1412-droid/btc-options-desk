@@ -243,33 +243,12 @@ export default function App() {
 
       {/* ── Metric Cards ─────────────────────────────────────────────────────── */}
       <div style={{ display: "flex", gap: 12, padding: "16px 24px", flexWrap: "wrap" }}>
+        <MetricCard label="Account Equity" value={accountInfo ? fmtUSD(accountInfo.equity) : "$0"} color={T.blue} sub={accountInfo ? `Margin ${accountInfo.marginPct}% / 30% Max` : "Binance Options"} />
+        <MetricCard label="Available Margin" value={accountInfo ? fmtUSD(accountInfo.availableBalance) : "$0"} color={T.green} sub={accountInfo ? `Balance ${fmtUSD(accountInfo.balance)}` : "พร้อมเทรด"} />
         <MetricCard label="Unrealized P&L" value={`${totalPnl >= 0 ? "+" : ""}${fmtUSD(totalPnl)}`} color={pnlColor(totalPnl)} sub="รวมทุก position" />
         <MetricCard label="Theta / Day" value={`$${totalTheta.toFixed(0)}`} color={T.green} sub="รายได้ต่อวัน" />
         <MetricCard label="Open Positions" value={positions.length} color={T.blue} sub={`${positions.filter(p => p.status === "healthy").length} healthy`} />
         <MetricCard label="Warnings" value={warnings} color={warnings > 0 ? T.amber : T.textMuted} sub={warnings > 0 ? "ต้องติดตาม" : "ทุก position ปกติ"} />
-        {ivRank != null && (
-          <MetricCard label="Market IV (avg)" value={`${ivRank}%`} color={ivRank > 80 ? T.green : ivRank >= 30 ? T.blue : T.red} sub={ivRank >= 30 ? "IV ผ่านเกณฑ์ ≥30%" : "IV ต่ำกว่าเกณฑ์"} />
-        )}
-        {marketContext.distFromMA20 != null && (
-          <MetricCard
-            label="MA20 Regime"
-            value={`${marketContext.distFromMA20 >= 0 ? "+" : ""}${marketContext.distFromMA20}%`}
-            color={Math.abs(marketContext.distFromMA20) > 10 ? T.red : Math.abs(marketContext.distFromMA20) > 7 ? T.amber : T.green}
-            sub={Math.abs(marketContext.distFromMA20) > 10 ? "Extreme Trend" : Math.abs(marketContext.distFromMA20) > 7 ? "Elevated (50% Size)" : "Normal Regime"}
-          />
-        )}
-        <MetricCard
-          label="Account Equity"
-          value={accountInfo ? fmtUSD(accountInfo.equity) : "$0"}
-          color={T.blue}
-          sub={accountInfo ? `Margin ${accountInfo.marginPct}% / 30% Max` : "Binance Options Wallet"}
-        />
-        <MetricCard
-          label="Available Margin"
-          value={accountInfo ? fmtUSD(accountInfo.availableBalance) : "$0"}
-          color={T.green}
-          sub={accountInfo ? `Wallet $${Number(accountInfo.balance).toLocaleString()}` : "พร้อมเปิด Position"}
-        />
       </div>
 
       {/* ── Tabs ────────────────────────────────────────────────────────────── */}

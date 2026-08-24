@@ -109,9 +109,15 @@ export default async function handler(req, res) {
         if (!apiKey || !apiSecret) {
           return res.status(500).json({ error: "Missing BINANCE_API_KEY / BINANCE_API_SECRET env vars" });
         }
-        // GET /eapi/v1/account — options account balance/margin info
-        const data = await signedGet(BINANCE_OPTIONS_BASE, "/eapi/v1/account", {}, apiKey, apiSecret);
-        return res.status(200).json(data);
+        // GET /eapi/v1/marginAccount — Binance European Options margin account info
+        try {
+          const data = await signedGet(BINANCE_OPTIONS_BASE, "/eapi/v1/marginAccount", {}, apiKey, apiSecret);
+          return res.status(200).json(data);
+        } catch (e1) {
+          // Fallback to /eapi/v1/account if marginAccount is unavailable
+          const fallback = await signedGet(BINANCE_OPTIONS_BASE, "/eapi/v1/account", {}, apiKey, apiSecret);
+          return res.status(200).json(fallback);
+        }
       }
 
       case "optionMarks": {
