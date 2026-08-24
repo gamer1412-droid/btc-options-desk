@@ -311,19 +311,55 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}
                     border: `1px solid ${T.blue}24`,
                     borderRadius: 8, padding: "12px 14px",
                   }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                       <span style={{ color: T.blue, fontWeight: 700, fontSize: 10, letterSpacing: 1.5, fontFamily: T.fontSans }}>
-                        📐 POSITION SIZING (MAX 3% PER TRADE)
+                        📐 POSITION SIZING (คำนวณตามเงินในพอร์ตจริง)
                       </span>
                       {sizing.recommendedLot && !evaluation.isBlocked && (
                         <Pill color={T.green}>
-                          แนะนำ {sizing.recommendedLot.label} BTC
+                          ★ แนะนำ {sizing.recommendedLot.label} BTC
                         </Pill>
                       )}
                     </div>
 
+                    {/* Prominent Recommendation Callout */}
+                    <div style={{
+                      background: evaluation.isBlocked
+                        ? T.redDim
+                        : (sizing.recommendedLot ? T.greenDim : T.amberDim),
+                      border: `1px solid ${evaluation.isBlocked ? T.red + "35" : T.greenMid}`,
+                      borderRadius: 6,
+                      padding: "8px 12px",
+                      marginBottom: 10,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      flexWrap: "wrap",
+                      gap: 6,
+                    }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 13 }}>⭐</span>
+                        <span style={{
+                          color: evaluation.isBlocked ? T.red : T.green,
+                          fontFamily: T.fontSans,
+                          fontWeight: 800,
+                          fontSize: 12,
+                        }}>
+                          {evaluation.isBlocked
+                            ? "งดเปิดไม้ใหม่ (ไม่ผ่านเกณฑ์ความปลอดภัย)"
+                            : `ขนาดที่แนะนำ: ${sizing.recommendedLot?.label || "0.01"} BTC (เหมาะสมที่สุดสำหรับพอร์ต $${accountInfo ? Number(accountInfo.equity).toLocaleString() : "1,645"})`}
+                        </span>
+                      </div>
+                      <span style={{ color: T.textSecondary, fontSize: 11, fontFamily: T.fontSans }}>
+                        {evaluation.isBlocked
+                          ? "ดูเหตุผลใน Checklist"
+                          : `ใช้ Margin ≈ $${sizing.recommendedLot?.marginRequired || 130} | Max Loss 2× ≈ -$${sizing.recommendedLot?.maxLoss || 10}`}
+                      </span>
+                    </div>
+
                     {/* Lot Size Buttons */}
-                    <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
+                      <span style={{ fontSize: 11, color: T.textSecondary, fontFamily: T.fontSans, marginRight: 2 }}>เลือกขนาด:</span>
                       {sizing.lots.filter(l => l.canAfford || l.size <= 0.05).map(lot => {
                         const isSelected = lot.size === chosenSize;
                         const isRec = sizing.recommendedLot?.size === lot.size && !evaluation.isBlocked;
@@ -341,8 +377,7 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}
                               transition: "all 0.15s ease",
                             }}
                           >
-                            {lot.label}
-                            {isRec && <span style={{ color: T.green, marginLeft: 2, fontSize: 9 }}>★</span>}
+                            {lot.label} {isRec && <span style={{ color: T.green, marginLeft: 2, fontSize: 10 }}>★ แนะนำ</span>}
                           </button>
                         );
                       })}
