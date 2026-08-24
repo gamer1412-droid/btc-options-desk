@@ -183,3 +183,93 @@ export function calculatePositionSize(accountInfo, opp, btcPrice, sizeMultiplier
   };
 }
 
+/**
+ * Calculate portfolio capacity & clear Action Verdict:
+ * - How many more lots can be opened?
+ * - Should you enter right now or wait?
+ */
+export function calculatePortfolioCapacity(accountInfo, currentPositions = [], btcPrice = 65000, marketContext = {}, opportunities = []) {
+  const equity = Number(accountInfo?.equity || 0);
+  const availableBalance = Number(accountInfo?.availableBalance || 0);
+  const marginUsed = Number(accountInfo?.marginUsed || 0);
+  const marginPct = accountInfo?.marginPct || (equity > 0 ? Math.round((marginUsed / equity) * 100) : 0);
+  const openCount = currentPositions.length;
+
+  // Margin required per standard 0.01 BTC lot
+  const marginPerLot = Math.round((btcPrice || 65000) * 0.20 * 0.01);       // Strangle ~ $130
+  const marginPerSingleLeg = Math.round((btcPrice || 65000) * 0.15 * 0.01);  // Single leg ~ $98
+
+  // How many lots can physically be opened based on available USDT in Binance wallet?
+  const maxLotsByCash = marginPerLot > 0 ? Math.floor(availableBalance / marginPerLot) : 0;
+
+  // How many lots according to strict 30% margin cap rule?
+  const maxAllowedMargin = equity * 0.30;
+  const headroomByRule = Math.max(0, maxAllowedMargin - marginUsed);
+  const maxLotsByRule = marginPerLot > 0 ? Math.floor(headroomByRule / marginPerLot) : 0;
+
+  // Market volatility checks
+  const isExtremeVolatility = Math.abs(marketContext?.change24h || 0) >= 5;
+  const hasPassOpportunities = opportunities.some(o => !o.isFullyHeld && (o.isPreferredDTE || o.isIdealDTE));
+
+  let verdict = "WAIT"; // "BUY_NOW" | "CAUTION_WAIT" | "WAIT_SETUP" | "BLOCKED"
+  let headline = "";
+  let badgeColor = "amber";
+  let actionText = "";
+  let remainingLots = maxLotsByCash;
+
+  if (isExtremeVolatility) {
+    verdict = "BLOCKED";
+    headline = "❌ ห้ามเปิด Position เพิ่มในขณะนี้";
+    actionText = `ตลาดผันผวนรุนแรง (BTC 24h Move ${marketContext.change24h}%) ตามกฎความปลอดภัยต้องงดเปิดไม้ใหม่จนกว่าตลาดจะนิ่ง`;
+    badgeColor = "red";
+    remainingLots = 0;
+  } else if (availableBalance < marginPerSingleLeg && equity > 0) {
+    verdict = "BLOCKED";
+    headline = "❌ ไม่สามารถเปิดไม้ใหม่ได้ (เงิน Margin ไม่พอ)";
+    actionText = `เงินคงเหลือใน Options Wallet มี $${availableBalance.toFixed(1)} ซึ่งน้อยกว่า Margin ขั้นต่ำสำหรับ 0.01 BTC ($${marginPerSingleLeg})`;
+    badgeColor = "red";
+    remainingLots = 0;
+  } else if (marginPct > 40 && equity > 0) {
+    // Current margin is over 40% (like user's 44.5%)
+    verdict = "CAUTION_WAIT";
+    headline = `🟡 แนะนำรอปิดทำกำไรก่อน (พอร์ตใช้ Margin ${marginPct}% แล้ว)`;
+    actionText = `กระเป๋ามีเงินพอเปิดได้อีก ${maxLotsByCash} ไม้ (0.01 BTC) แต่เนื่องจาก Margin รวมปัจจุบันเกินเพดานความปลอดภัย 30% แนะนำให้รอปิด TP ไม้เดิมก่อนเปิดเพิ่ม`;
+    badgeColor = "amber";
+    remainingLots = maxLotsByCash;
+  } else if (maxLotsByCash > 0 && hasPassOpportunities) {
+    verdict = "BUY_NOW";
+    headline = `🟢 ควรเปิดได้เลย (พร้อมเข้าอีก ${maxLotsByCash} ไม้)`;
+    actionText = `สถานะพอร์ตพร้อม + มีคู่สัญญาผ่านเกณฑ์ DTE 18-25 วันใน Scanner แนะนำเปิดขนาด 0.01 BTC`;
+    badgeColor = "green";
+    remainingLots = maxLotsByCash;
+  } else if (maxLotsByCash > 0) {
+    verdict = "WAIT_SETUP";
+    headline = `🟢 พอร์ตพร้อมเปิดได้อีก ${maxLotsByCash} ไม้ (กำลังรอจังหวะสัญญา)`;
+    actionText = `เงินในพอร์ตพร้อมเทรด แต่ควรรอสแกนเจอรอบที่ตรงเกณฑ์ Delta 0.15-0.20 และ DTE 18-25 วัน`;
+    badgeColor = "blue";
+    remainingLots = maxLotsByCash;
+  } else {
+    verdict = "READY";
+    headline = "🟢 พร้อมเปิดได้ 1 ไม้ (0.01 BTC)";
+    actionText = "แนะนำเปิดขนาดเริ่มต้น 0.01 BTC ต่อ 1 คู่สัญญา";
+    badgeColor = "green";
+    remainingLots = 1;
+  }
+
+  return {
+    verdict,
+    headline,
+    badgeColor,
+    actionText,
+    remainingLots,
+    maxLotsByCash,
+    maxLotsByRule,
+    marginPerLot,
+    marginPct,
+    availableBalance,
+    equity,
+    openCount,
+  };
+}
+
+

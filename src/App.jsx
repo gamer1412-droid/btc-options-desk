@@ -4,12 +4,13 @@ import { fmtUSD, pnlColor } from "./utils.js";
 import { mapBinancePosition } from "./services/binance.js";
 import { sendTelegram, checkAlerts, checkEntryAlerts } from "./services/alerts.js";
 import { scanEntryOpportunities } from "./services/scanner.js";
-import { parseAccountInfo } from "./services/sizing.js";
+import { parseAccountInfo, calculatePortfolioCapacity } from "./services/sizing.js";
 import { MetricCard } from "./components/MetricCard.jsx";
 import { Pill } from "./components/Pill.jsx";
 import { PositionRow, POSITION_GRID_COLS } from "./components/PositionRow.jsx";
 import { AnalysisPanel } from "./components/AnalysisPanel.jsx";
 import { ScannerTab } from "./components/ScannerTab.jsx";
+import { CapacityWidget } from "./components/CapacityWidget.jsx";
 
 const POLL_INTERVAL_MS = 15000; // refresh live data every 15 s
 
@@ -146,6 +147,7 @@ export default function App() {
   const totalPnl   = positions.reduce((s, p) => s + p.pnl, 0);
   const totalTheta = positions.reduce((s, p) => s + Math.abs(p.theta), 0);
   const warnings   = positions.filter(p => p.status === "warning" || p.status === "danger").length;
+  const capacity   = calculatePortfolioCapacity(accountInfo, positions, btcPrice, marketContext, opportunities);
 
   const tabStyle = (t) => ({
     padding: "8px 18px",
@@ -275,6 +277,13 @@ export default function App() {
         <MetricCard label="Open Positions" value={positions.length} color={T.blue} sub={`${positions.filter(p => p.status === "healthy").length} healthy`} />
         <MetricCard label="Warnings" value={warnings} color={warnings > 0 ? T.amber : T.textMuted} sub={warnings > 0 ? "ต้องติดตาม" : "ทุก position ปกติ"} />
       </div>
+
+      {/* ── Portfolio Capacity & Action Radar Widget ───────────────────────────── */}
+      {accountInfo && (
+        <div style={{ padding: "0 24px 16px" }}>
+          <CapacityWidget capacity={capacity} />
+        </div>
+      )}
 
       {/* ── Tabs ────────────────────────────────────────────────────────────── */}
       <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, marginLeft: 24, marginRight: 24, gap: 4 }}>
