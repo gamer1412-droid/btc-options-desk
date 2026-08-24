@@ -246,10 +246,10 @@ export default function App() {
           <div style={{ margin: "20px 24px 0", padding: 16, background: T.amberDim, border: `1px solid ${T.amber}44`, borderRadius: 8, display: "flex", gap: 24, flexWrap: "wrap" }}>
             <div style={{ color: T.amber, fontSize: 10, letterSpacing: 2, fontFamily: T.font, marginBottom: 6, width: "100%" }}>⚡ QUICK RULES</div>
             {[
-              { rule: "CLOSE TP",   desc: "เมื่อ profit ≥ 50%" },
-              { rule: "ROLL OUT",   desc: "เมื่อ Delta ≥ 0.40" },
-              { rule: "STOP LOSS",  desc: "เมื่อ loss = 2× premium" },
-              { rule: "GAMMA RISK", desc: "Close ก่อน expiry 2 วัน" },
+              { rule: "CLOSE TP",     desc: "เมื่อ profit ≥ 50% หรือ ≥ 25–30% ในสัปดาห์แรก" },
+              { rule: "ROLL CREDIT",  desc: "เมื่อ Delta ≥ 0.35–0.40 (Roll ต้องได้ Net Credit เสมอ)" },
+              { rule: "STOP LOSS",    desc: "เมื่อ Loss = 2× premium หรือ Delta ทะลุ > 0.50" },
+              { rule: "GAMMA RISK",   desc: "Close ก่อน expiry 2 วัน (ห้ามถือลุ้นจนหมดอายุ)" },
             ].map(({ rule, desc }) => (
               <div key={rule} style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <Pill color={T.amber}>{rule}</Pill>
@@ -262,33 +262,33 @@ export default function App() {
 
       {/* ── Rules Tab ───────────────────────────────────────────────────────── */}
       {tab === "rules" && (
-        <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16, maxWidth: 700 }}>
+        <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16, maxWidth: 740 }}>
           {[
-            { title: "ENTRY RULES", color: T.green, rules: [
-              "Delta Call: 0.15–0.20 | Delta Put: 0.20–0.25",
-              "IV Rank > 30% — ถ้าต่ำกว่านี้ premium ไม่คุ้ม",
-              "DTE: 7–21 วัน — Theta decay เร็วที่สุด",
-              "Position size: ไม่เกิน 5% ของพอร์ต ต่อ 1 strangle",
-              "ห้าม entry ภายใน 48 ชม. ก่อน major news (FOMC, CPI)",
+            { title: "ENTRY RULES (การเปิด Position)", color: T.green, rules: [
+              "Delta Call: 0.15–0.20 | Delta Put: 0.20–0.25 (Win rate ทางสถิติ ~75–80%)",
+              "IV Rank > 30% — หากต่ำกว่านี้ค่า Premium ไม่คุ้มกับความเสี่ยงความผันผวน",
+              "DTE: 14–28 วัน — สัดส่วน Theta Decay สูงควบคู่กับ Gamma Risk ในระดับควบคุมได้",
+              "Position Size: ไม่เกิน 5% ของพอร์ตต่อชุด / Total Margin รวมทั้งพอร์ตไม่เกิน 40%",
+              "หลีกเลี่ยงการเปิด Position ภายใน 48 ชม. ก่อนข่าวใหญ่ (FOMC, CPI) และก่อน Monthly Expiry",
             ]},
-            { title: "EXIT / TP RULES", color: T.blue, rules: [
-              "Close เมื่อ profit ≥ 50% — Tasty Trade Rule",
-              "Close เมื่อ profit ≥ 25–30% ถ้าถึงก่อน 50% DTE",
-              "Close เมื่อเหลือ DTE 1–2 วัน — Gamma risk สูง",
-              "อย่าถือจน expiry ไม่ว่ากรณีใด",
+            { title: "EXIT / TP RULES (การปิดทำกำไร)", color: T.blue, rules: [
+              "TP หลัก: ปิดทำกำไรทันทีเมื่อได้ ≥ 50% ของ Premium ที่รับมา (Tastytrade 50% Rule)",
+              "Quick TP: ปิดทำกำไรเมื่อได้ ≥ 25–30% หากกำไรถึงเป้าหมายภายในสัปดาห์แรก",
+              "DTE Stop: ปิด Position เมื่อเหลือ DTE ≤ 2 วัน เพื่อตัด Gamma Explosion",
+              "ห้ามถือ Position ลุ้นจนถึงวินาทีหมดอายุ (08:00 UTC) ไม่ว่ากรณีใดทั้งสิ้น",
             ]},
-            { title: "ROLL / ADJUST RULES", color: T.amber, rules: [
-              "Roll เมื่อ Delta ของ leg ใดถึง 0.40+",
-              "Roll Out in Time: เพิ่ม DTE เพื่อเก็บ credit เพิ่ม",
-              "Roll Strike: ขยับ strike ให้ห่างราคาปัจจุบัน",
-              "แปลงเป็น Iron Condor: ซื้อ wing จำกัด max loss",
-              "ถ้า BTC ขึ้น/ลง >5% ใน 1 วัน — หยุดประเมินก่อน",
+            { title: "ROLL / ADJUST RULES (การปรับแก้ Position)", color: T.amber, rules: [
+              "Delta Trigger: เริ่มพิจารณา Roll เมื่อขาใดขาหนึ่งแตะ Delta ≥ 0.35–0.40",
+              "Roll Out & Away: ขยายวันหมดอายุเพิ่ม (DTE) พร้อมขยับ Strike ให้ห่างราคาปัจจุบัน",
+              "Golden Rule of Rolling: การ Roll ต้องได้รับ Net Credit เพิ่มเสมอ (ห้ามยอมจ่าย Net Debit)",
+              "Untested Side: ขยับ Strike ขาที่ปลอดภัยเข้ามาใกล้ราคาปัจจุบันเพื่อเก็บ Premium เพิ่มชดเชย",
+              "กรณีฉุกเฉิน: แปลงเป็น Iron Condor โดยการซื้อ Long OTM wing เพื่อจำกัด Max Loss",
             ]},
-            { title: "STOP LOSS RULES", color: T.red, rules: [
-              "Close ทันที เมื่อ loss = 2× premium ที่รับมา",
-              "ถ้า Delta รวมทั้ง position > 0.50 — พิจารณา hedge",
-              "ถ้าราคา BTC ทะลุ Strike — ประเมิน roll หรือ cut",
-              "ไม่มีข้อยกเว้น ไม่ใช้ดุลพินิจ — ทำตาม rule เท่านั้น",
+            { title: "STOP LOSS RULES (การตัดขาดทุนอย่างเด็ดขาด)", color: T.red, rules: [
+              "Hard Stop: Cut Loss ทันทีเมื่อ Loss = 2× Premium ที่ได้รับมา (ขาดทุนรวม 200%)",
+              "Strike Breach: หากราคา Spot ทะลุ Strike และ Delta พุ่งเกิน 0.50 ให้ Cut Loss ทันที",
+              "ใช้วินัย 100% ไม่มีข้อยกเว้น ไม่ใช้ดุลพินิจ หรือหวังว่าราคาจะกลับตัว",
+              "หาก BTC แกว่งเกิน ±5% ภายในวันเดียว ให้หยุดเปิด Position ใหม่และประเมินพอร์ตทันที",
             ]},
           ].map(({ title, color, rules }) => (
             <div key={title} style={{ background: T.bg2, border: `1px solid ${color}33`, borderLeft: `3px solid ${color}`, borderRadius: 8, padding: 16 }}>
