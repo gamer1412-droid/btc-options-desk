@@ -1,3 +1,6 @@
+import { STRATEGY_CONFIG } from "../config/strategyConfig.js";
+import { evaluateEntryRules } from "./rulesEngine.js";
+
 // ─── Telegram sender ──────────────────────────────────────────────────────────
 export async function sendTelegram(type, data = {}) {
   try {
@@ -11,52 +14,68 @@ export async function sendTelegram(type, data = {}) {
   }
 }
 
-// ─── Alert criteria ───────────────────────────────────────────────────────────
-// Called every poll cycle. Sends at most once per position until app resets.
+// ─── Alert criteria v2.0 ───────────────────────────────────────────────────────
+// Evaluates active positions against Defense, TP, Stop Loss, and DTE rules.
 export function checkAlerts(positions, alertedIds) {
+  const cfg = STRATEGY_CONFIG;
   const newAlerts = [];
+
   for (const pos of positions) {
-    if (alertedIds.has(pos.id)) continue; // already alerted, skip
+    if (alertedIds.has(pos.id)) continue;
     const absDelta = Math.abs(pos.delta);
-    // premium and currentPrice are now Numbers — safe arithmetic
     const pct = pos.premium > 0 ? ((pos.premium - pos.currentPrice) / pos.premium) * 100 : 0;
 
-    if (absDelta >= 0.40) {
-      newAlerts.push({ pos, reason: `⚠️ Delta ${pos.delta.toFixed(2)} — ถึง 0.40 แล้ว ควร Roll หรือ Close` });
-    } else if (pct >= 50) {
-      newAlerts.push({ pos, reason: `✅ Profit ${pct.toFixed(0)}% — ถึง TP แล้ว ควร Close` });
-    } else if (pos.pnl < 0 && Math.abs(pos.pnl) >= pos.premium * 2) {
-      newAlerts.push({ pos, reason: `🚨 Loss = 2× premium — STOP LOSS ด่วน!` });
-    } else if (pos.dte <= 2) {
-      newAlerts.push({ pos, reason: `⏰ เหลือ ${pos.dte} วัน — Gamma risk สูง ควร Close` });
+    // 1. Hard Stop Loss (2.0x Premium)
+    if (pos.pnl < 0 && Math.abs(pos.pnl) >= pos.premium * cfg.exit.hardStopLossMultiplier) {
+      newAlerts.push({ pos, reason: `🚨 HARD STOP LOSS: ขาดทุนแตะ 2× Premium (${pos.pnl} USD) — ปิดตำแหน่งทันที!` });
+    }
+    // 2. DTE Exit (<= 2 days)
+    else if (pos.dte <= cfg.exit.dteStop) {
+      newAlerts.push({ pos, reason: `⏰ DTE EXIT: เหลือ ${pos.dte} วัน — ห้ามถือข้าม Expiry (Gamma Risk สูง)` });
+    }
+    // 3. Take Profit 50%
+    else if (pct >= cfg.exit.mainTpPct) {
+      newAlerts.push({ pos, reason: `✅ TAKE PROFIT: กำไร ${pct.toFixed(0)}% (>= 50%) — ปิดทำกำไรตามแผน` });
+    }
+    // 4. Delta Defense Action Level (>= 0.65)
+    else if (absDelta >= cfg.defense.actionDelta) {
+      newAlerts.push({ pos, reason: `🚨 ACTION REQUIRED: Delta ${pos.delta.toFixed(2)} >= 0.65 — ต้อง Close หรือ Roll 1 ครั้ง` });
+    }
+    // 5. Delta Defense Mode (>= 0.50)
+    else if (absDelta >= cfg.defense.strongWarningDelta) {
+      newAlerts.push({ pos, reason: `⚠️ DEFENSIVE MODE: Delta ${pos.delta.toFixed(2)} >= 0.50 — เตรียม Close / Roll` });
+    }
+    // 6. Delta Warning (>= 0.35)
+    else if (absDelta >= cfg.defense.warningDelta) {
+      newAlerts.push({ pos, reason: `⚠️ DEFENSIVE REVIEW: Delta ${pos.delta.toFixed(2)} >= 0.35 — เริ่มเฝ้าระวัง` });
     }
   }
   return newAlerts;
 }
 
-// ─── Entry Signal Criteria ──────────────────────────────────────────────────
-// Sends Telegram alert when a matching Short Strangle opportunity is found.
-// Deduplicates so each setup ID is only alerted once per session / day.
-// Automatically SKIPS opportunities if already opened in portfolio.
-export function checkEntryAlerts(opportunities, alertedEntryIds) {
+// ─── Entry Signal Criteria v2.0 ──────────────────────────────────────────────
+// Evaluates opportunities through rulesEngine and only sends alerts for non-blocked setups.
+export function checkEntryAlerts(opportunities, alertedEntryIds, marketContext = {}, accountInfo = null, currentPositions = []) {
   const newSignals = [];
   if (!Array.isArray(opportunities) || opportunities.length === 0) return newSignals;
 
   for (const opp of opportunities) {
     if (alertedEntryIds.has(opp.id)) continue;
 
-    // Skip if the user already has this position (or either leg) open in portfolio
-    if (opp.isFullyHeld || opp.isPartiallyHeld) continue;
+    // Evaluate full rules engine
+    const evaluation = evaluateEntryRules(opp, marketContext, accountInfo, currentPositions);
+    if (evaluation.isBlocked) continue;
 
-    // Only alert for ideal setups matching rules (DTE 14–28 days, IV Rank > 30%)
-    if (opp.isIdealDTE && (opp.ivRank >= 30 || !opp.ivRank)) {
-      newSignals.push(opp);
-      alertedEntryIds.add(opp.id);
-      // Alert at most 1 best opportunity per scan cycle to prevent spam
-      break;
-    }
+    newSignals.push({
+      ...opp,
+      evaluation,
+    });
+    alertedEntryIds.add(opp.id);
+    // Alert at most 1 best opportunity per scan cycle to prevent spam
+    break;
   }
 
   return newSignals;
 }
+
 

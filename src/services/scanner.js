@@ -1,15 +1,18 @@
-// ─── Entry Signal Scanner ───────────────────────────────────────────────────
-// Scans Binance Options market marks to find Short Strangle opportunities matching Entry Rules:
-// 1. DTE: 14–28 days (fallback 7–35 days)
-// 2. Put Delta: -0.20 to -0.25 (target ~ -0.22)
-// 3. Call Delta: +0.15 to +0.20 (target ~ +0.18)
-// 4. Market IV > 30%
+import { STRATEGY_CONFIG } from "../config/strategyConfig.js";
+
+// ─── Entry Signal Scanner v2.0 ───────────────────────────────────────────────
+// Scans Binance Options market marks to find Short Strangle opportunities matching Production Rules v2.0:
+// 1. DTE: 14–28 days (Preferred 18–25 days)
+// 2. Put Delta: 0.15 to 0.20 (max 0.20, bullish exception <= 0.25)
+// 3. Call Delta: 0.15 to 0.20 (max 0.20)
+// 4. Market IV Rank >= 30%
 
 export function scanEntryOpportunities(marksData, btcPrice, ivRank = null, currentPositions = []) {
   if (!Array.isArray(marksData) || marksData.length === 0 || !btcPrice) {
     return [];
   }
 
+  const cfg = STRATEGY_CONFIG;
   const now = Date.now();
   const parsedContracts = [];
 
@@ -41,7 +44,7 @@ export function scanEntryOpportunities(marksData, btcPrice, ivRank = null, curre
     const expMs = Date.UTC(y, mo - 1, d, 8, 0, 0);
     const dte = Math.max(0, Math.ceil((expMs - now) / 86400000));
 
-    // Only look at DTE between 7 and 35 days (ideal: 14–28 days)
+    // Only scan within broad window 7 to 35 days (valid strategy window: 14–28 days)
     if (dte < 7 || dte > 35) continue;
 
     const strike = Number(parts[2]);
@@ -87,14 +90,14 @@ export function scanEntryOpportunities(marksData, btcPrice, ivRank = null, curre
   const strangles = [];
 
   for (const [expiry, { puts, calls, dte }] of byExpiry.entries()) {
-    // Filter candidate Puts: delta ideally between -0.25 and -0.18
+    // Filter candidate Puts: delta ideally near 0.18 (between -0.14 and -0.26)
     const candidatePuts = puts
-      .filter(p => p.delta <= -0.14 && p.delta >= -0.32 && p.strike < btcPrice)
-      .sort((a, b) => Math.abs(a.delta - (-0.22)) - Math.abs(b.delta - (-0.22)));
+      .filter(p => p.delta <= -0.14 && p.delta >= -0.28 && p.strike < btcPrice)
+      .sort((a, b) => Math.abs(a.delta - (-0.18)) - Math.abs(b.delta - (-0.18)));
 
-    // Filter candidate Calls: delta ideally between +0.15 and +0.22
+    // Filter candidate Calls: delta ideally near +0.18 (between +0.13 and +0.22)
     const candidateCalls = calls
-      .filter(c => c.delta >= 0.12 && c.delta <= 0.28 && c.strike > btcPrice)
+      .filter(c => c.delta >= 0.13 && c.delta <= 0.22 && c.strike > btcPrice)
       .sort((a, b) => Math.abs(a.delta - 0.18) - Math.abs(b.delta - 0.18));
 
     if (candidatePuts.length > 0 && candidateCalls.length > 0) {
@@ -114,9 +117,9 @@ export function scanEntryOpportunities(marksData, btcPrice, ivRank = null, curre
       const isFullyHeld = isPutHeld && isCallHeld;
       const isPartiallyHeld = isPutHeld || isCallHeld;
 
-      // Score: prefer 14-28 DTE, higher premium, well-centered delta
-      const isIdealDTE = dte >= 14 && dte <= 28;
-      const score = (isIdealDTE ? 100 : 50) + totalPremium / 10;
+      const isPreferredDTE = dte >= cfg.dte.preferredMin && dte <= cfg.dte.preferredMax; // 18-25 days
+      const isIdealDTE = dte >= cfg.dte.min && dte <= cfg.dte.max; // 14-28 days
+      const score = (isPreferredDTE ? 150 : isIdealDTE ? 100 : 50) + totalPremium / 10;
 
       strangles.push({
         id: `STRANGLE-${bestPut.symbol}_${bestCall.symbol}`,
@@ -141,6 +144,7 @@ export function scanEntryOpportunities(marksData, btcPrice, ivRank = null, curre
         putDistancePct,
         callDistancePct,
         ivRank: ivRank || Math.round((bestPut.iv + bestCall.iv) / 2),
+        isPreferredDTE,
         isIdealDTE,
         isPutHeld,
         isCallHeld,

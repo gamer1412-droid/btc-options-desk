@@ -18,6 +18,7 @@ export default function App() {
   const [positions, setPositions]               = useState([]);
   const [opportunities, setOpportunities]       = useState([]);
   const [btcPrice, setBtcPrice]                 = useState(null);
+  const [marketContext, setMarketContext]       = useState({ price: null, change24h: 0, ma20: null, distFromMA20: 0, ivRank: null });
   const [ivRank, setIvRank]                     = useState(null); // market-wide BTC IV (avg of ATM options)
   const [connError, setConnError]               = useState(null);
   const [loadingPositions, setLoadingPositions] = useState(true);
@@ -32,16 +33,16 @@ export default function App() {
 
   const fetchLiveData = useCallback(async () => {
     try {
-      const [priceRes, posRes, marksRes, acctRes] = await Promise.all([
-        fetch("/api/binance?action=btcPrice"),
+      const [marketRes, posRes, marksRes, acctRes] = await Promise.all([
+        fetch("/api/binance?action=btcMarketContext").catch(() => fetch("/api/binance?action=btcPrice")),
         fetch("/api/binance?action=optionPositions"),
         fetch("/api/binance?action=optionMarks"),
         fetch("/api/binance?action=optionAccount").catch(() => null),
       ]);
-      const priceData = await priceRes.json();
-      const posData   = await posRes.json();
-      const marksData = await marksRes.json();
-      const acctData  = acctRes ? await acctRes.json().catch(() => null) : null;
+      const marketData = await marketRes.json();
+      const posData    = await posRes.json();
+      const marksData  = await marksRes.json();
+      const acctData   = acctRes ? await acctRes.json().catch(() => null) : null;
 
       // ── Account info ──────────────────────────────────────────────────────
       if (acctData && !acctData.error) {
@@ -49,8 +50,8 @@ export default function App() {
         if (parsed) setAccountInfo(parsed);
       }
 
-      // ── BTC spot price ──────────────────────────────────────────────────────
-      const currentBtcPrice = priceData.price || null;
+      // ── BTC spot price & Market Context ──────────────────────────────────
+      const currentBtcPrice = marketData.price || null;
       if (currentBtcPrice) setBtcPrice(currentBtcPrice);
 
       // ── Market IV (average of all available option marks) ──────────────────
@@ -65,6 +66,15 @@ export default function App() {
           setIvRank(currentIvRank);
         }
       }
+
+      const updatedMarketContext = {
+        price: currentBtcPrice,
+        change24h: marketData.change24h ?? 0,
+        ma20: marketData.ma20 ?? null,
+        distFromMA20: marketData.distFromMA20 ?? 0,
+        ivRank: currentIvRank,
+      };
+      setMarketContext(updatedMarketContext);
 
       // ── Build Greeks / Mark Lookup Map ────────────────────────────────────
       const marksMap = new Map();
@@ -111,7 +121,7 @@ export default function App() {
 
         // Auto-send Telegram Entry Signal when high-probability setup appears (skips already held positions)
         if (alertsEnabled && opps.length > 0) {
-          const newEntrySignals = checkEntryAlerts(opps, alertedEntryIdsRef.current);
+          const newEntrySignals = checkEntryAlerts(opps, alertedEntryIdsRef.current, updatedMarketContext, accountInfo, mappedPositions);
           for (const signal of newEntrySignals) {
             sendTelegram("strangle_signal", signal);
           }
@@ -124,7 +134,7 @@ export default function App() {
     } finally {
       setLoadingPositions(false);
     }
-  }, [alertsEnabled]);
+  }, [alertsEnabled, accountInfo]);
 
   useEffect(() => {
     fetchLiveData();
@@ -157,7 +167,7 @@ export default function App() {
           <div style={{ width: 8, height: 8, borderRadius: "50%", background: connError ? T.red : T.green, boxShadow: `0 0 8px ${connError ? T.red : T.green}` }} />
           <span style={{ color: connError ? T.red : T.green, fontWeight: 700, fontSize: 14, letterSpacing: 3 }}>BTC OPTIONS DESK</span>
           <span style={{ color: T.textMuted, fontSize: 11, letterSpacing: 1 }}>
-            {connError ? "CONNECTION ERROR" : loadingPositions ? "CONNECTING..." : "LIVE — BINANCE"}
+            {connError ? "CONNECTION ERROR" : loadingPositions ? "CONNECTING..." : "LIVE — PRODUCTION v2.0"}
           </span>
         </div>
 
@@ -208,7 +218,13 @@ export default function App() {
           </div>
 
           <div style={{ textAlign: "right" }}>
-            <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 2 }}>BTC / USDT</div>
+            <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 2 }}>
+              BTC / USDT {marketContext.change24h != null && (
+                <span style={{ color: marketContext.change24h >= 0 ? T.green : T.red, fontWeight: 600 }}>
+                  ({marketContext.change24h >= 0 ? "+" : ""}{marketContext.change24h}%)
+                </span>
+              )}
+            </div>
             <div style={{ color: T.textPrimary, fontSize: 18, fontWeight: 700 }}>{btcPrice ? fmtUSD(btcPrice) : "—"}</div>
           </div>
         </div>
@@ -231,14 +247,22 @@ export default function App() {
         <MetricCard label="Open Positions" value={positions.length} color={T.blue} sub={`${positions.filter(p => p.status === "healthy").length} healthy`} />
         <MetricCard label="Warnings" value={warnings} color={warnings > 0 ? T.amber : T.textMuted} sub={warnings > 0 ? "ต้องติดตาม" : "ทุก position ปกติ"} />
         {ivRank != null && (
-          <MetricCard label="Market IV (avg)" value={`${ivRank}%`} color={ivRank > 80 ? T.green : ivRank > 50 ? T.amber : T.textMuted} sub="IV เฉลี่ยตลาด BTC" />
+          <MetricCard label="Market IV (avg)" value={`${ivRank}%`} color={ivRank > 80 ? T.green : ivRank >= 30 ? T.blue : T.red} sub={ivRank >= 30 ? "IV ผ่านเกณฑ์ ≥30%" : "IV ต่ำกว่าเกณฑ์"} />
+        )}
+        {marketContext.distFromMA20 != null && (
+          <MetricCard
+            label="MA20 Regime"
+            value={`${marketContext.distFromMA20 >= 0 ? "+" : ""}${marketContext.distFromMA20}%`}
+            color={Math.abs(marketContext.distFromMA20) > 10 ? T.red : Math.abs(marketContext.distFromMA20) > 7 ? T.amber : T.green}
+            sub={Math.abs(marketContext.distFromMA20) > 10 ? "Extreme Trend" : Math.abs(marketContext.distFromMA20) > 7 ? "Elevated (50% Size)" : "Normal Regime"}
+          />
         )}
         {accountInfo && (
           <MetricCard
             label="Account Equity"
             value={fmtUSD(accountInfo.equity)}
             color={T.blue}
-            sub={`Margin ${accountInfo.marginPct}% / 40%`}
+            sub={`Margin ${accountInfo.marginPct}% / 30% Max`}
           />
         )}
       </div>
@@ -254,7 +278,7 @@ export default function App() {
         </button>
 
         <button id="tab-rules" style={tabStyle("rules")} onClick={() => setTab("rules")}>
-          RULES
+          RULES v2.0
         </button>
       </div>
 
@@ -265,7 +289,9 @@ export default function App() {
             opportunities={opportunities}
             btcPrice={btcPrice}
             ivRank={ivRank}
+            marketContext={marketContext}
             accountInfo={accountInfo}
+            currentPositions={positions}
             onAnalyzeStrangle={setAnalyzing}
           />
         </div>
@@ -302,14 +328,18 @@ export default function App() {
             </>
           )}
 
-          {/* Quick rules reminder */}
-          <div style={{ margin: "20px 24px 0", padding: 16, background: T.amberDim, border: `1px solid ${T.amber}44`, borderRadius: 8, display: "flex", gap: 24, flexWrap: "wrap" }}>
-            <div style={{ color: T.amber, fontSize: 10, letterSpacing: 2, fontFamily: T.font, marginBottom: 6, width: "100%" }}>⚡ QUICK RULES</div>
+          {/* Quick rules reminder v2.0 */}
+          <div style={{ margin: "20px 24px 0", padding: 16, background: T.bg2, border: `1px solid ${T.amber}44`, borderRadius: 8, display: "flex", gap: 20, flexWrap: "wrap" }}>
+            <div style={{ color: T.amber, fontSize: 10, letterSpacing: 2, fontFamily: T.font, marginBottom: 4, width: "100%", fontWeight: 700 }}>
+              ⚡ PRODUCTION RULES v2.0 CHEATSHEET (SURVIVE FIRST, PROFIT SECOND)
+            </div>
             {[
-              { rule: "CLOSE TP",     desc: "เมื่อ profit ≥ 50% หรือ ≥ 25–30% ในสัปดาห์แรก" },
-              { rule: "ROLL CREDIT",  desc: "เมื่อ Delta ≥ 0.35–0.40 (Roll ต้องได้ Net Credit เสมอ)" },
-              { rule: "STOP LOSS",    desc: "เมื่อ Loss = 2× premium หรือ Delta ทะลุ > 0.50" },
-              { rule: "GAMMA RISK",   desc: "Close ก่อน expiry 2 วัน (ห้ามถือลุ้นจนหมดอายุ)" },
+              { rule: "TP 50%",         desc: "ปิดทำกำไรทันทีเมื่อได้ ≥ 50% ของ Premium หรือ ≥ 30% ภายใน 5 วันแรก" },
+              { rule: "HARD STOP",      desc: "Cut Loss ทันทีเมื่อ Loss = 2× Premium (ห้ามถัว / ห้ามถือลุ้น)" },
+              { rule: "DELTA DEFENSE",  desc: "Delta 0.35 Warning | 0.50 Defensive | 0.65 Hard Action (Close/Roll)" },
+              { rule: "MAX 1 ROLL",     desc: "Roll ได้สูงสุด 1 ครั้ง และต้องได้รับ Net Credit > 0 เสมอ (ห้าม Roll ซ้ำ)" },
+              { rule: "PORTFOLIO CAP",  desc: "ไม่เกิน 3% ต่อไม้ / Total Margin ไม่เกิน 30% / Worst-Case Risk ≤ 10%" },
+              { rule: "DTE EXIT",       desc: "ปิดก่อนหมดอายุเสมอเมื่อ DTE ≤ 2 วัน (ห้ามถือลุ้นจนวินาที 08:00 UTC)" },
             ].map(({ rule, desc }) => (
               <div key={rule} style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <Pill color={T.amber}>{rule}</Pill>
@@ -320,43 +350,122 @@ export default function App() {
         </div>
       )}
 
-      {/* ── Rules Tab ───────────────────────────────────────────────────────── */}
+      {/* ── Rules Tab v2.0 ───────────────────────────────────────────────────── */}
       {tab === "rules" && (
-        <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16, maxWidth: 740 }}>
+        <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 20, maxWidth: 840 }}>
+
+          {/* Header Principle */}
+          <div style={{ background: `linear-gradient(135deg, ${T.bg2}, ${T.bg1})`, border: `1px solid ${T.greenMid}`, borderRadius: 10, padding: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <span style={{ fontSize: 16 }}>🛡️</span>
+              <span style={{ color: T.green, fontFamily: T.font, fontWeight: 700, fontSize: 13, letterSpacing: 2 }}>
+                BTC OPTION DESK — PRODUCTION TRADING RULES SPECIFICATION v2.0
+              </span>
+            </div>
+            <div style={{ color: T.textSecondary, fontSize: 13, lineHeight: 1.6, fontFamily: "'Inter', sans-serif" }}>
+              ระบบถูกออกแบบภายใต้หลักการ <strong>"SURVIVE FIRST, PROFIT SECOND"</strong> เพื่อสร้าง Positive Expected Value, ควบคุม Tail Risk, จำกัด Drawdown, และไม่เพิ่มความเสี่ยงเพื่อไล่คืน Loss ทุกเกณฑ์ถูกแปลงเป็น Machine-readable Engine ในระบบเรียบร้อยแล้ว
+            </div>
+          </div>
+
           {[
-            { title: "ENTRY RULES (การเปิด Position)", color: T.green, rules: [
-              "Delta Call: 0.15–0.20 | Delta Put: 0.20–0.25 (Win rate ทางสถิติ ~75–80%)",
-              "IV Rank > 30% — หากต่ำกว่านี้ค่า Premium ไม่คุ้มกับความเสี่ยงความผันผวน",
-              "DTE: 14–28 วัน — สัดส่วน Theta Decay สูงควบคู่กับ Gamma Risk ในระดับควบคุมได้",
-              "Position Size: ไม่เกิน 5% ของพอร์ตต่อชุด / Total Margin รวมทั้งพอร์ตไม่เกิน 40%",
-              "หลีกเลี่ยงการเปิด Position ภายใน 48 ชม. ก่อนข่าวใหญ่ (FOMC, CPI) และก่อน Monthly Expiry",
-            ]},
-            { title: "EXIT / TP RULES (การปิดทำกำไร)", color: T.blue, rules: [
-              "TP หลัก: ปิดทำกำไรทันทีเมื่อได้ ≥ 50% ของ Premium ที่รับมา (Tastytrade 50% Rule)",
-              "Quick TP: ปิดทำกำไรเมื่อได้ ≥ 25–30% หากกำไรถึงเป้าหมายภายในสัปดาห์แรก",
-              "DTE Stop: ปิด Position เมื่อเหลือ DTE ≤ 2 วัน เพื่อตัด Gamma Explosion",
-              "ห้ามถือ Position ลุ้นจนถึงวินาทีหมดอายุ (08:00 UTC) ไม่ว่ากรณีใดทั้งสิ้น",
-            ]},
-            { title: "ROLL / ADJUST RULES (การปรับแก้ Position)", color: T.amber, rules: [
-              "Delta Trigger: เริ่มพิจารณา Roll เมื่อขาใดขาหนึ่งแตะ Delta ≥ 0.35–0.40",
-              "Roll Out & Away: ขยายวันหมดอายุเพิ่ม (DTE) พร้อมขยับ Strike ให้ห่างราคาปัจจุบัน",
-              "Golden Rule of Rolling: การ Roll ต้องได้รับ Net Credit เพิ่มเสมอ (ห้ามยอมจ่าย Net Debit)",
-              "Untested Side: ขยับ Strike ขาที่ปลอดภัยเข้ามาใกล้ราคาปัจจุบันเพื่อเก็บ Premium เพิ่มชดเชย",
-              "กรณีฉุกเฉิน: แปลงเป็น Iron Condor โดยการซื้อ Long OTM wing เพื่อจำกัด Max Loss",
-            ]},
-            { title: "STOP LOSS RULES (การตัดขาดทุนอย่างเด็ดขาด)", color: T.red, rules: [
-              "Hard Stop: Cut Loss ทันทีเมื่อ Loss = 2× Premium ที่ได้รับมา (ขาดทุนรวม 200%)",
-              "Strike Breach: หากราคา Spot ทะลุ Strike และ Delta พุ่งเกิน 0.50 ให้ Cut Loss ทันที",
-              "ใช้วินัย 100% ไม่มีข้อยกเว้น ไม่ใช้ดุลพินิจ หรือหวังว่าราคาจะกลับตัว",
-              "หาก BTC แกว่งเกิน ±5% ภายในวันเดียว ให้หยุดเปิด Position ใหม่และประเมินพอร์ตทันที",
-            ]},
-          ].map(({ title, color, rules }) => (
-            <div key={title} style={{ background: T.bg2, border: `1px solid ${color}33`, borderLeft: `3px solid ${color}`, borderRadius: 8, padding: 16 }}>
-              <div style={{ color, fontFamily: T.font, fontWeight: 700, fontSize: 11, letterSpacing: 2, marginBottom: 12 }}>{title}</div>
-              {rules.map(r => (
-                <div key={r} style={{ display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 8 }}>
-                  <span style={{ color, fontSize: 12, marginTop: 1 }}>▸</span>
-                  <span style={{ color: T.textSecondary, fontFamily: "'Inter', sans-serif", fontSize: 13, lineHeight: 1.5 }}>{r}</span>
+            {
+              title: "1. STRATEGY PRIORITY MATRIX (ลำดับความสำคัญเมื่อ Rules ขัดกัน)",
+              color: T.green,
+              items: [
+                "1. Capital Preservation (การรักษาเงินต้นมาก่อนเสมอ)",
+                "2. Portfolio Risk Limit (คุมความเสี่ยงรวมของพอร์ต ≤ 10%)",
+                "3. Position Risk Limit (คุมความเสี่ยงต่อไม้ ≤ 3%)",
+                "4. Stop Loss (วินัย 100% เมื่อ Loss = 2× Premium)",
+                "5. Market Regime (กรองแนวโน้ม MA20 และความผันผวน)",
+                "6. Entry Conditions (Delta 0.15–0.20, IVR ≥ 30%, DTE 18–25 วัน)",
+                "7. Premium Optimization → Profit Maximization (ผลกำไรอยู่ลำดับสุดท้าย)",
+              ],
+            },
+            {
+              title: "2. ENTRY RULES (เกณฑ์การเปิด Position ใหม่)",
+              color: T.blue,
+              items: [
+                "Call Delta: 0.15–0.20 (Maximum Entry Delta = 0.20 ห้ามเข้าหาก Call Delta > 0.20)",
+                "Put Delta: 0.15–0.20 (Bullish Exception สูงสุด 0.25 เมื่อ Regime และ Risk Metrics อนุญาต)",
+                "IV Filter: IV Rank ≥ 30% และ IV Percentile ≥ 40% (หาก IVR < 30% → NO ENTRY)",
+                "DTE Entry: 18–25 วัน (Preferred ★) | 14–17 วัน (ลด Position Size 25%) | <14 หรือ >28 วัน (NO ENTRY)",
+                "Market Regime (MA20): |Distance from MA20| ≤ 7% (Normal) | 7–10% (ลด Size 50%) | >10% (NO ENTRY)",
+                "Daily Volatility Safety: หาก BTC 24h Move ≥ ±5% → STOP NEW ENTRY ทันที",
+                "Event / Expiry Filter: ห้ามเปิด Position ใหม่ภายใน 48 ชม. ก่อน FOMC, CPI, และ Monthly Expiry",
+              ],
+            },
+            {
+              title: "3. POSITION & PORTFOLIO SIZING (การจำกัดขนาดไม้และความเสี่ยง)",
+              color: T.purple,
+              items: [
+                "Per Position Allocation: Maximum 3% ของพอร์ตต่อชุด (ห้ามใช้ 5% เป็น Default)",
+                "Total Margin Usage: Maximum 30% ของพอร์ต (เป้าหมายปกติ 10–25% / 30% เป็น Absolute Cap)",
+                "Total Portfolio Risk: Worst-Case Stress Risk รวมทุก Position ห้ามเกิน 10% ของพอร์ต",
+                "Net Portfolio Delta: |Net Delta| ≤ 0.15 BTC ต่อ 1 BTC NAV (หากเกิน 0.20 → NO NEW ENTRY)",
+                "Concentration Risk: ห้ามเปิด Short Strike ในระนาบเดียวกัน หรือ Expiry เดียวกันซ้ำซ้อน",
+              ],
+            },
+            {
+              title: "4. EXIT & TAKE PROFIT RULES (การปิดทำกำไรตามวินัย)",
+              color: T.green,
+              items: [
+                "Main Take Profit: ปิดทำกำไรทันทีเมื่อ Unrealized Profit ถึง 50% ของ Original Premium (ไม่ต้องรอหมดอายุ)",
+                "Quick TP Rule: ปิดทำกำไรเมื่อได้ 25–30% หากทำกำไรถึงเป้าหมายภายใน 5 วันแรก (DaysHeld ≤ 5)",
+                "DTE Exit (Gamma Defense): ปิด Position ทันทีเมื่อเหลือ DTE ≤ 2 วัน (ห้ามถือลุ้นจนถึงวินาทีหมดอายุ 08:00 UTC)",
+              ],
+            },
+            {
+              title: "5. STOP LOSS & DELTA DEFENSIVE TRIGGERS (การตัดขาดทุนและระบบตั้งรับ)",
+              color: T.red,
+              items: [
+                "Hard Stop Loss: Cut Loss เด็ดขาดทันทีเมื่อ Loss ≥ 2.0× Original Premium (ขาดทุนรวม 200%)",
+                "Delta Warning: Delta ≥ 0.35 → เข้าสู่โหมด Defensive Review",
+                "Delta Strong Warning: Delta ≥ 0.50 หรือ Strike Breach → ห้ามเพิ่มความเสี่ยง / เตรียม Close หรือ Roll",
+                "Delta Action Level: Delta ≥ 0.65 → CLOSE ทันที หรือ Execute Approved Roll (ห้ามรอให้ Delta กลับมาเอง)",
+                "Strike Breach: หาก Spot ทะลุ Strike และ Delta ≥ 0.50 ให้ประเมิน Close หรือ Roll ทันที",
+              ],
+            },
+            {
+              title: "6. ROLL RULES (กฎเหล็กการ Roll ขยายเวลา)",
+              color: T.amber,
+              items: [
+                "Maximum Roll: อนุญาตให้ Roll ได้สูงสุด 1 ครั้งต่อ Position เท่านั้น (หลังจาก Roll แล้วห้าม Roll ซ้ำอีกเด็ดขาด)",
+                "Roll Out & Away: ต้องเพิ่ม DTE, ขยับ Strike ให้ห่าง Spot, ลด Delta, และไม่เพิ่ม Portfolio Risk",
+                "Golden Net Credit Rule: การ Roll ต้องได้รับ Net Credit > 0 เสมอ (ห้ามยอมจ่าย Net Debit โดยเด็ดขาด)",
+                "No Loss Avoidance Roll: ห้าม Roll เพียงเพื่อหลีกเลี่ยงการรับรู้ Loss หาก Risk พอร์ตโดยรวมสูงขึ้นให้ Cut Loss ทันที",
+                "Second Breach: หาก Position ที่ถูก Roll ไปแล้วถูกทดสอบอีกครั้ง ให้ Hard Close ทันที",
+              ],
+            },
+            {
+              title: "7. DRAWDOWN & CONSECUTIVE LOSS CONTROLS (Portfolio Kill Switch)",
+              color: T.red,
+              items: [
+                "Daily Loss Limit: Daily Portfolio Loss ≥ 3% → NO NEW ENTRY ทันที พร้อม Review ทุก Position",
+                "Monthly Drawdown (Half Size): Monthly Drawdown ≥ 10% → ลด Position Size ลง 50%",
+                "Monthly Drawdown (Stop Strategy): Monthly Drawdown ≥ 15% → STOP STRATEGY ทันทีและ Full Review",
+                "Consecutive Losses: แพ้ติดกัน 3 ครั้ง → ลด Size 50% | แพ้ติดกัน 5 ครั้ง → Pause Strategy ทันที",
+                "No Martingale / Revenge Trading: ห้าม Average Down หรือเพิ่ม Position เพื่อเอาคืน Loss ทุกกรณี",
+              ],
+            },
+            {
+              title: "8. POSITION STATE MACHINE (ลำดับสถานะของ Position)",
+              color: T.blue,
+              items: [
+                "NORMAL: ทุก Risk Metric อยู่ในเกณฑ์ปกติ (Delta < 0.35, DTE > 4)",
+                "WARNING: Delta ≥ 0.35 หรือ DTE ≤ 4 วัน (เริ่มเฝ้าระวัง)",
+                "DEFENSIVE: Delta ≥ 0.50 หรือ Strike Breach (เตรียม Close หรือ Roll)",
+                "ROLL_PENDING: Delta ≥ 0.65 (ต้องตัดสินใจ Close หรือ Roll 1 ครั้ง)",
+                "ROLLED: ใช้สิทธิ์ Roll ไปแล้ว 1 ครั้ง (ไม่มีสิทธิ์ Roll เพิ่ม)",
+                "EXIT: Close Position ทำกำไร (TP 50%) หรือตัดขาดทุน (Hard Stop 2x / DTE ≤ 2d)",
+              ],
+            },
+          ].map(({ title, color, items }) => (
+            <div key={title} style={{ background: T.bg2, border: `1px solid ${color}33`, borderLeft: `4px solid ${color}`, borderRadius: 8, padding: 18 }}>
+              <div style={{ color, fontFamily: T.font, fontWeight: 700, fontSize: 12, letterSpacing: 1.5, marginBottom: 14 }}>{title}</div>
+              {items.map((it, i) => (
+                <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 8 }}>
+                  <span style={{ color, fontSize: 13, marginTop: 1 }}>▸</span>
+                  <span style={{ color: T.textSecondary, fontFamily: "'Inter', sans-serif", fontSize: 13, lineHeight: 1.5 }}>{it}</span>
                 </div>
               ))}
             </div>

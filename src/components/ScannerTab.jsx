@@ -4,10 +4,12 @@ import { fmtUSD } from "../utils.js";
 import { Pill } from "./Pill.jsx";
 import { sendTelegram } from "../services/alerts.js";
 import { calculatePositionSize } from "../services/sizing.js";
+import { evaluateEntryRules } from "../services/rulesEngine.js";
 
-export function ScannerTab({ opportunities, btcPrice, ivRank, accountInfo, onAnalyzeStrangle }) {
+export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}, accountInfo, currentPositions = [], onAnalyzeStrangle }) {
   const [sentMap, setSentMap] = useState({});
   const [selectedSize, setSelectedSize] = useState({}); // opp.id -> selected lot size
+  const [expandedChecklist, setExpandedChecklist] = useState({}); // opp.id -> boolean
 
   const handleSendTelegram = async (opp) => {
     setSentMap(prev => ({ ...prev, [opp.id]: "sending" }));
@@ -22,10 +24,14 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, accountInfo, onAna
     }
   };
 
+  const toggleChecklist = (id) => {
+    setExpandedChecklist(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
   return (
     <div style={{ padding: "0 24px 32px", display: "flex", flexDirection: "column", gap: 20 }}>
 
-      {/* Account Balance Banner */}
+      {/* Account Balance & Risk Header Banner */}
       {accountInfo && (
         <div style={{
           background: `linear-gradient(135deg, ${T.bg2}, ${T.bg1})`,
@@ -46,9 +52,9 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, accountInfo, onAna
             </div>
           </div>
           <div>
-            <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 2, fontFamily: T.font }}>MARGIN USED</div>
-            <div style={{ color: accountInfo.marginPct > 35 ? T.red : accountInfo.marginPct > 25 ? T.amber : T.green, fontFamily: T.font, fontSize: 15, fontWeight: 700 }}>
-              {fmtUSD(accountInfo.marginUsed)} <span style={{ fontSize: 11, color: T.textSecondary }}>({accountInfo.marginPct}%)</span>
+            <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 2, fontFamily: T.font }}>MARGIN USED (MAX 30%)</div>
+            <div style={{ color: accountInfo.marginPct > 28 ? T.red : accountInfo.marginPct > 20 ? T.amber : T.green, fontFamily: T.font, fontSize: 15, fontWeight: 700 }}>
+              {fmtUSD(accountInfo.marginUsed)} <span style={{ fontSize: 11, color: T.textSecondary }}>({accountInfo.marginPct}% / 30%)</span>
             </div>
           </div>
           <div>
@@ -66,7 +72,7 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, accountInfo, onAna
         </div>
       )}
 
-      {/* Criteria Banner */}
+      {/* Production Rules Criteria Banner */}
       <div style={{
         background: T.bg2, border: `1px solid ${T.border}`, borderRadius: 10,
         padding: "16px 20px", display: "flex", justifyContent: "space-between",
@@ -76,18 +82,24 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, accountInfo, onAna
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
             <span style={{ fontSize: 14 }}>🎯</span>
             <span style={{ color: T.green, fontWeight: 700, fontSize: 13, letterSpacing: 2, fontFamily: T.font }}>
-              SHORT STRANGLE ENTRY SCANNER
+              PRODUCTION TRADING RULES v2.0 ENGINE
             </span>
           </div>
           <div style={{ color: T.textSecondary, fontSize: 12, fontFamily: "'Inter', sans-serif" }}>
-            สแกนหาคู่สัญญาจาก Binance Options ตามเกณฑ์ Delta (Put: -0.22, Call: +0.18) และ DTE (14–28 วัน) อัตโนมัติ
+            ระบบตรวจสอบกฎ 10 ข้ออัตโนมัติ: Delta (0.15–0.20), DTE (18–25 วัน), IV Rank (≥30%), MA20 Regime (≤7%), Max Margin 30%, Max Trade 3%
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-          <Pill color={T.green}>DTE 14–28d</Pill>
-          <Pill color={T.amber}>PUT Δ -0.20~-0.25</Pill>
-          <Pill color={T.blue}>CALL Δ +0.15~-0.20</Pill>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <Pill color={T.green}>DTE 18–25d ★ PREFERRED</Pill>
+          <Pill color={T.amber}>PUT Δ 0.15~0.20</Pill>
+          <Pill color={T.blue}>CALL Δ 0.15~0.20</Pill>
+          <Pill color={T.purple}>IVR ≥ 30%</Pill>
+          {marketContext.distFromMA20 != null && (
+            <Pill color={Math.abs(marketContext.distFromMA20) > 10 ? T.red : Math.abs(marketContext.distFromMA20) > 7 ? T.amber : T.green}>
+              MA20: {marketContext.distFromMA20 >= 0 ? "+" : ""}{marketContext.distFromMA20}%
+            </Pill>
+          )}
         </div>
       </div>
 
@@ -100,15 +112,20 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, accountInfo, onAna
           {opportunities.map((opp) => {
             const isSent = sentMap[opp.id] === "sent";
             const isSending = sentMap[opp.id] === "sending";
-            const sizing = calculatePositionSize(accountInfo, opp, btcPrice);
+
+            // Run v2.0 Rules Engine Evaluation
+            const evaluation = evaluateEntryRules(opp, marketContext, accountInfo, currentPositions);
+            const sizing = calculatePositionSize(accountInfo, opp, btcPrice, evaluation.sizeMultiplier);
             const chosenSize = selectedSize[opp.id] ?? (sizing.defaultLot?.size ?? 0.01);
             const chosenLot = sizing.lots?.find(l => l.size === chosenSize) || sizing.defaultLot;
+            const isChecklistOpen = Boolean(expandedChecklist[opp.id]);
 
             return (
               <div key={opp.id} style={{
-                background: T.bg1, border: `1px solid ${opp.isIdealDTE ? T.greenMid : T.border}`,
+                background: T.bg1,
+                border: `1px solid ${evaluation.isBlocked ? T.red + "44" : opp.isPreferredDTE ? T.greenMid : T.border}`,
                 borderRadius: 12, padding: 20, display: "flex", flexDirection: "column", gap: 16,
-                boxShadow: opp.isIdealDTE ? `0 0 20px ${T.green}11` : "none",
+                boxShadow: opp.isPreferredDTE && !evaluation.isBlocked ? `0 0 20px ${T.green}11` : "none",
                 position: "relative",
               }}>
                 {/* Card Top */}
@@ -117,8 +134,8 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, accountInfo, onAna
                     <span style={{ color: T.textPrimary, fontFamily: T.font, fontWeight: 700, fontSize: 15 }}>
                       📅 {opp.expiry}
                     </span>
-                    <Pill color={opp.isIdealDTE ? T.green : T.textSecondary}>
-                      {opp.dte} วัน {opp.isIdealDTE ? "★ IDEAL" : ""}
+                    <Pill color={opp.isPreferredDTE ? T.green : opp.isIdealDTE ? T.blue : T.textSecondary}>
+                      {opp.dte} วัน {opp.isPreferredDTE ? "★ PREFERRED" : opp.isIdealDTE ? "IDEAL" : ""}
                     </Pill>
                     {opp.isFullyHeld ? (
                       <Pill color={T.blue}>✓ ถือในพอร์ตแล้ว (OPENED)</Pill>
@@ -135,6 +152,68 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, accountInfo, onAna
                       {fmtUSD(opp.btcPrice)}
                     </div>
                   </div>
+                </div>
+
+                {/* Rules Engine Decision Banner */}
+                <div style={{
+                  background: evaluation.isBlocked ? T.redDim : evaluation.isWarning ? T.amberDim : T.greenDim,
+                  border: `1px solid ${evaluation.isBlocked ? T.red + "44" : evaluation.isWarning ? T.amber + "44" : T.greenMid}`,
+                  borderRadius: 8, padding: "10px 14px",
+                  display: "flex", flexDirection: "column", gap: 6,
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 12 }}>
+                        {evaluation.isBlocked ? "❌" : evaluation.isWarning ? "⚠️" : "✅"}
+                      </span>
+                      <span style={{
+                        color: evaluation.isBlocked ? T.red : evaluation.isWarning ? T.amber : T.green,
+                        fontFamily: T.font, fontWeight: 700, fontSize: 11, letterSpacing: 1,
+                      }}>
+                        {evaluation.isBlocked
+                          ? "ENTRY DECISION: BLOCKED"
+                          : evaluation.isWarning
+                          ? `ENTRY DECISION: PASS WITH WARNING (Size ${Math.round(evaluation.sizeMultiplier * 100)}%)`
+                          : "ENTRY DECISION: PASS (100% READY)"}
+                      </span>
+                    </div>
+
+                    <button
+                      onClick={() => toggleChecklist(opp.id)}
+                      style={{
+                        background: "none", border: "none", color: T.textSecondary,
+                        cursor: "pointer", fontFamily: T.font, fontSize: 10, textDecoration: "underline",
+                      }}
+                    >
+                      {isChecklistOpen ? "ซ่อน Checklist ▲" : "ดู Checklist (10 กฎ) ▼"}
+                    </button>
+                  </div>
+
+                  {/* Reasons Preview when blocked or warning */}
+                  {evaluation.reasons.length > 0 && !isChecklistOpen && (
+                    <div style={{ color: T.textSecondary, fontSize: 11, fontFamily: "'Inter', sans-serif", marginTop: 2 }}>
+                      {evaluation.reasons.slice(0, 2).map((r, i) => (
+                        <div key={i}>{r}</div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Expanded 10-rule Checklist */}
+                  {isChecklistOpen && (
+                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}`, display: "flex", flexDirection: "column", gap: 6 }}>
+                      {evaluation.checks.map((chk, i) => (
+                        <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11 }}>
+                          <span style={{ color: T.textSecondary }}>{chk.icon} {chk.rule}:</span>
+                          <span style={{
+                            color: chk.status === "PASS" ? T.green : chk.status === "WARNING" ? T.amber : T.red,
+                            fontFamily: T.font, fontWeight: 600,
+                          }}>
+                            {chk.message}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Two Legs */}
@@ -203,7 +282,7 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, accountInfo, onAna
                   </div>
                 </div>
 
-                {/* ─── Position Sizing Section ──────────────────────────────────── */}
+                {/* ─── Position Sizing Section v2.0 ─────────────────────────────── */}
                 {sizing.available && (
                   <div style={{
                     background: `linear-gradient(135deg, ${T.bg2}, ${T.bg3})`,
@@ -212,9 +291,9 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, accountInfo, onAna
                   }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                       <span style={{ color: T.blue, fontWeight: 700, fontSize: 10, letterSpacing: 2, fontFamily: T.font }}>
-                        📐 POSITION SIZING
+                        📐 POSITION SIZING (MAX 3% PER TRADE)
                       </span>
-                      {sizing.recommendedLot && (
+                      {sizing.recommendedLot && !evaluation.isBlocked && (
                         <Pill color={T.green}>
                           แนะนำ {sizing.recommendedLot.label} BTC
                         </Pill>
@@ -225,7 +304,7 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, accountInfo, onAna
                     <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
                       {sizing.lots.filter(l => l.canAfford || l.size <= 0.05).map(lot => {
                         const isSelected = lot.size === chosenSize;
-                        const isRec = sizing.recommendedLot?.size === lot.size;
+                        const isRec = sizing.recommendedLot?.size === lot.size && !evaluation.isBlocked;
                         return (
                           <button
                             key={lot.size}
@@ -293,10 +372,14 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, accountInfo, onAna
                         <div>
                           <div style={{ color: T.textMuted, fontSize: 8, letterSpacing: 1 }}>STATUS</div>
                           <div style={{
-                            color: chosenLot.isRecommended ? T.green : (!chosenLot.canAfford ? T.red : T.amber),
+                            color: evaluation.isBlocked ? T.red : chosenLot.isRecommended ? T.green : (!chosenLot.canAfford ? T.red : T.amber),
                             fontFamily: T.font, fontSize: 10, fontWeight: 700,
                           }}>
-                            {chosenLot.isRecommended ? "✓ WITHIN RULES" : (!chosenLot.canAfford ? "✗ OVER MARGIN" : "⚠ OVER 5% RULE")}
+                            {evaluation.isBlocked
+                              ? "❌ BLOCKED"
+                              : chosenLot.isRecommended
+                              ? "✓ WITHIN RULES"
+                              : (!chosenLot.canAfford ? "✗ OVER MARGIN" : "⚠ OVER 3% RULE")}
                           </div>
                         </div>
                       </div>
@@ -319,14 +402,14 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, accountInfo, onAna
 
                   <button
                     onClick={() => handleSendTelegram(opp)}
-                    disabled={isSending}
+                    disabled={isSending || evaluation.isBlocked}
                     style={{
-                      background: isSent ? T.green : T.bg2,
+                      background: isSent ? T.green : evaluation.isBlocked ? T.bg3 : T.bg2,
                       border: `1px solid ${isSent ? T.green : T.border}`,
-                      color: isSent ? T.bg0 : T.textPrimary,
-                      borderRadius: 6, padding: "8px 14px", cursor: "pointer",
+                      color: isSent ? T.bg0 : evaluation.isBlocked ? T.textMuted : T.textPrimary,
+                      borderRadius: 6, padding: "8px 14px", cursor: evaluation.isBlocked ? "not-allowed" : "pointer",
                       fontFamily: T.font, fontSize: 11, fontWeight: 700, letterSpacing: 1,
-                      display: "flex", alignItems: "center", gap: 6,
+                      display: "flex", alignItems: "center", gap: 6, opacity: evaluation.isBlocked ? 0.6 : 1,
                     }}
                   >
                     <span>📨</span>

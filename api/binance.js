@@ -66,6 +66,36 @@ export default async function handler(req, res) {
         return res.status(200).json({ price: parseFloat(data.price) });
       }
 
+      case "btcMarketContext": {
+        // Public endpoint — fetch 24h ticker and 20 daily klines for MA20 regime calculation
+        const [tickerRes, klinesRes] = await Promise.all([
+          fetch(`${BINANCE_SPOT_BASE}/api/v3/ticker/24hr?symbol=BTCUSDT`),
+          fetch(`${BINANCE_SPOT_BASE}/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=20`),
+        ]);
+        const ticker = await tickerRes.json();
+        const klines = await klinesRes.json();
+
+        let ma20 = null;
+        let distFromMA20 = 0;
+        const currentPrice = parseFloat(ticker.lastPrice);
+        const change24h = parseFloat(ticker.priceChangePercent);
+
+        if (Array.isArray(klines) && klines.length > 0) {
+          const closes = klines.map(k => parseFloat(k[4])).filter(v => !isNaN(v));
+          if (closes.length > 0) {
+            ma20 = closes.reduce((a, b) => a + b, 0) / closes.length;
+            distFromMA20 = ((currentPrice - ma20) / ma20) * 100;
+          }
+        }
+
+        return res.status(200).json({
+          price: currentPrice,
+          change24h: Math.round(change24h * 100) / 100,
+          ma20: ma20 ? Math.round(ma20) : null,
+          distFromMA20: Math.round(distFromMA20 * 10) / 10,
+        });
+      }
+
       case "optionPositions": {
         if (!apiKey || !apiSecret) {
           return res.status(500).json({ error: "Missing BINANCE_API_KEY / BINANCE_API_SECRET env vars" });
