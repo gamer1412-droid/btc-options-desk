@@ -1,6 +1,16 @@
 {
+  "regions": [
+    "sin1"
+  ],
   "functions": {
-    "api/binance.js": { "maxDuration": 10 },
-    "api/analyze.js": { "maxDuration": 15 }
+    "api/binance.js": {
+      "maxDuration": 10
+    },
+    "api/analyze.js": {
+      "maxDuration": 15
+    },
+    "api/telegram.js": {
+      "maxDuration": 10
+    }
   }
 }
