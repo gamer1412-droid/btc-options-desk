@@ -4,6 +4,7 @@ import { fmtUSD, pnlColor } from "./utils.js";
 import { mapBinancePosition } from "./services/binance.js";
 import { sendTelegram, checkAlerts, checkEntryAlerts } from "./services/alerts.js";
 import { scanEntryOpportunities } from "./services/scanner.js";
+import { parseAccountInfo } from "./services/sizing.js";
 import { MetricCard } from "./components/MetricCard.jsx";
 import { Pill } from "./components/Pill.jsx";
 import { PositionRow, POSITION_GRID_COLS } from "./components/PositionRow.jsx";
@@ -25,19 +26,28 @@ export default function App() {
   const [tab, setTab]                           = useState("positions"); // "positions" | "scanner" | "rules"
   const [telegramStatus, setTelegramStatus]     = useState(null); // "ok" | "error" | null
   const [alertsEnabled, setAlertsEnabled]       = useState(true);
+  const [accountInfo, setAccountInfo]           = useState(null);
   const alertedIdsRef = useRef(new Set());
   const alertedEntryIdsRef = useRef(new Set());
 
   const fetchLiveData = useCallback(async () => {
     try {
-      const [priceRes, posRes, marksRes] = await Promise.all([
+      const [priceRes, posRes, marksRes, acctRes] = await Promise.all([
         fetch("/api/binance?action=btcPrice"),
         fetch("/api/binance?action=optionPositions"),
         fetch("/api/binance?action=optionMarks"),
+        fetch("/api/binance?action=optionAccount").catch(() => null),
       ]);
       const priceData = await priceRes.json();
       const posData   = await posRes.json();
       const marksData = await marksRes.json();
+      const acctData  = acctRes ? await acctRes.json().catch(() => null) : null;
+
+      // ── Account info ──────────────────────────────────────────────────────
+      if (acctData && !acctData.error) {
+        const parsed = parseAccountInfo(acctData);
+        if (parsed) setAccountInfo(parsed);
+      }
 
       // ── BTC spot price ──────────────────────────────────────────────────────
       const currentBtcPrice = priceData.price || null;
@@ -222,6 +232,14 @@ export default function App() {
         {ivRank != null && (
           <MetricCard label="Market IV (avg)" value={`${ivRank}%`} color={ivRank > 80 ? T.green : ivRank > 50 ? T.amber : T.textMuted} sub="IV เฉลี่ยตลาด BTC" />
         )}
+        {accountInfo && (
+          <MetricCard
+            label="Account Equity"
+            value={fmtUSD(accountInfo.equity)}
+            color={T.blue}
+            sub={`Margin ${accountInfo.marginPct}% / 40%`}
+          />
+        )}
       </div>
 
       {/* ── Tabs ────────────────────────────────────────────────────────────── */}
@@ -246,6 +264,7 @@ export default function App() {
             opportunities={opportunities}
             btcPrice={btcPrice}
             ivRank={ivRank}
+            accountInfo={accountInfo}
             onAnalyzeStrangle={setAnalyzing}
           />
         </div>

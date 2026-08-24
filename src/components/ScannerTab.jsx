@@ -3,9 +3,11 @@ import { T } from "../tokens.js";
 import { fmtUSD } from "../utils.js";
 import { Pill } from "./Pill.jsx";
 import { sendTelegram } from "../services/alerts.js";
+import { calculatePositionSize } from "../services/sizing.js";
 
-export function ScannerTab({ opportunities, btcPrice, ivRank, onAnalyzeStrangle }) {
+export function ScannerTab({ opportunities, btcPrice, ivRank, accountInfo, onAnalyzeStrangle }) {
   const [sentMap, setSentMap] = useState({});
+  const [selectedSize, setSelectedSize] = useState({}); // opp.id -> selected lot size
 
   const handleSendTelegram = async (opp) => {
     setSentMap(prev => ({ ...prev, [opp.id]: "sending" }));
@@ -22,6 +24,48 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, onAnalyzeStrangle 
 
   return (
     <div style={{ padding: "0 24px 32px", display: "flex", flexDirection: "column", gap: 20 }}>
+
+      {/* Account Balance Banner */}
+      {accountInfo && (
+        <div style={{
+          background: `linear-gradient(135deg, ${T.bg2}, ${T.bg1})`,
+          border: `1px solid ${T.blue}33`,
+          borderRadius: 10, padding: "14px 20px",
+          display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 16,
+        }}>
+          <div>
+            <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 2, fontFamily: T.font }}>EQUITY</div>
+            <div style={{ color: T.blue, fontFamily: T.font, fontSize: 18, fontWeight: 700 }}>
+              {fmtUSD(accountInfo.equity)}
+            </div>
+          </div>
+          <div>
+            <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 2, fontFamily: T.font }}>BALANCE</div>
+            <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 15, fontWeight: 700 }}>
+              {fmtUSD(accountInfo.balance)}
+            </div>
+          </div>
+          <div>
+            <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 2, fontFamily: T.font }}>MARGIN USED</div>
+            <div style={{ color: accountInfo.marginPct > 35 ? T.red : accountInfo.marginPct > 25 ? T.amber : T.green, fontFamily: T.font, fontSize: 15, fontWeight: 700 }}>
+              {fmtUSD(accountInfo.marginUsed)} <span style={{ fontSize: 11, color: T.textSecondary }}>({accountInfo.marginPct}%)</span>
+            </div>
+          </div>
+          <div>
+            <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 2, fontFamily: T.font }}>AVAILABLE</div>
+            <div style={{ color: T.green, fontFamily: T.font, fontSize: 15, fontWeight: 700 }}>
+              {fmtUSD(accountInfo.availableBalance)}
+            </div>
+          </div>
+          <div>
+            <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 2, fontFamily: T.font }}>UNREALIZED P&L</div>
+            <div style={{ color: accountInfo.unrealizedPnl >= 0 ? T.green : T.red, fontFamily: T.font, fontSize: 15, fontWeight: 700 }}>
+              {accountInfo.unrealizedPnl >= 0 ? "+" : ""}{fmtUSD(accountInfo.unrealizedPnl)}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Criteria Banner */}
       <div style={{
         background: T.bg2, border: `1px solid ${T.border}`, borderRadius: 10,
@@ -56,6 +100,9 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, onAnalyzeStrangle 
           {opportunities.map((opp) => {
             const isSent = sentMap[opp.id] === "sent";
             const isSending = sentMap[opp.id] === "sending";
+            const sizing = calculatePositionSize(accountInfo, opp, btcPrice);
+            const chosenSize = selectedSize[opp.id] ?? (sizing.defaultLot?.size ?? 0.01);
+            const chosenLot = sizing.lots?.find(l => l.size === chosenSize) || sizing.defaultLot;
 
             return (
               <div key={opp.id} style={{
@@ -148,6 +195,107 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, onAnalyzeStrangle 
                     </div>
                   </div>
                 </div>
+
+                {/* ─── Position Sizing Section ──────────────────────────────────── */}
+                {sizing.available && (
+                  <div style={{
+                    background: `linear-gradient(135deg, ${T.bg2}, ${T.bg3})`,
+                    border: `1px solid ${T.blue}33`,
+                    borderRadius: 8, padding: "12px 14px",
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                      <span style={{ color: T.blue, fontWeight: 700, fontSize: 10, letterSpacing: 2, fontFamily: T.font }}>
+                        📐 POSITION SIZING
+                      </span>
+                      {sizing.recommendedLot && (
+                        <Pill color={T.green}>
+                          แนะนำ {sizing.recommendedLot.label} BTC
+                        </Pill>
+                      )}
+                    </div>
+
+                    {/* Lot Size Buttons */}
+                    <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+                      {sizing.lots.filter(l => l.canAfford || l.size <= 0.05).map(lot => {
+                        const isSelected = lot.size === chosenSize;
+                        const isRec = sizing.recommendedLot?.size === lot.size;
+                        return (
+                          <button
+                            key={lot.size}
+                            onClick={() => setSelectedSize(prev => ({ ...prev, [opp.id]: lot.size }))}
+                            style={{
+                              padding: "5px 10px", borderRadius: 5, cursor: "pointer",
+                              fontFamily: T.font, fontSize: 11, fontWeight: 700,
+                              letterSpacing: 1,
+                              background: isSelected ? (lot.canAfford ? T.greenDim : T.redDim) : T.bg1,
+                              border: `1px solid ${isSelected ? (lot.canAfford ? T.greenMid : T.red + "44") : T.border}`,
+                              color: isSelected ? (lot.canAfford ? T.green : T.red) : (lot.canAfford ? T.textSecondary : T.textMuted),
+                              opacity: lot.canAfford ? 1 : 0.5,
+                              position: "relative",
+                            }}
+                          >
+                            {lot.label}
+                            {isRec && <span style={{ color: T.green, marginLeft: 2, fontSize: 9 }}>★</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Selected Lot Details */}
+                    {chosenLot && (
+                      <div style={{
+                        display: "grid", gridTemplateColumns: "1fr 1fr 1fr",
+                        gap: 8, background: T.bg1, borderRadius: 6, padding: "10px 12px",
+                      }}>
+                        <div>
+                          <div style={{ color: T.textMuted, fontSize: 8, letterSpacing: 1 }}>AMOUNT</div>
+                          <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 14, fontWeight: 700 }}>
+                            {chosenLot.label} <span style={{ fontSize: 10, color: T.textSecondary }}>BTC</span>
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ color: T.textMuted, fontSize: 8, letterSpacing: 1 }}>MARGIN ≈</div>
+                          <div style={{ color: T.amber, fontFamily: T.font, fontSize: 14, fontWeight: 700 }}>
+                            ${chosenLot.marginRequired.toLocaleString()}
+                          </div>
+                          <div style={{ color: T.textMuted, fontSize: 9 }}>
+                            ({chosenLot.marginPctOfEquity}% of equity)
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ color: T.textMuted, fontSize: 8, letterSpacing: 1 }}>PREMIUM รับ</div>
+                          <div style={{ color: T.green, fontFamily: T.font, fontSize: 14, fontWeight: 700 }}>
+                            +${chosenLot.premiumReceived.toLocaleString()}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ color: T.textMuted, fontSize: 8, letterSpacing: 1 }}>THETA / วัน</div>
+                          <div style={{ color: T.green, fontFamily: T.font, fontSize: 12, fontWeight: 700 }}>
+                            +${chosenLot.thetaPerDay}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ color: T.textMuted, fontSize: 8, letterSpacing: 1 }}>MAX LOSS (2×)</div>
+                          <div style={{ color: T.red, fontFamily: T.font, fontSize: 12, fontWeight: 700 }}>
+                            -${chosenLot.maxLoss.toLocaleString()}
+                          </div>
+                          <div style={{ color: T.textMuted, fontSize: 9 }}>
+                            ({chosenLot.riskPct}% of port)
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ color: T.textMuted, fontSize: 8, letterSpacing: 1 }}>STATUS</div>
+                          <div style={{
+                            color: chosenLot.isRecommended ? T.green : (!chosenLot.canAfford ? T.red : T.amber),
+                            fontFamily: T.font, fontSize: 10, fontWeight: 700,
+                          }}>
+                            {chosenLot.isRecommended ? "✓ WITHIN RULES" : (!chosenLot.canAfford ? "✗ OVER MARGIN" : "⚠ OVER 5% RULE")}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Action Buttons */}
                 <div style={{ display: "flex", gap: 10, marginTop: "auto" }}>
