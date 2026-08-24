@@ -5,13 +5,26 @@
 // 3. Call Delta: +0.15 to +0.20 (target ~ +0.18)
 // 4. Market IV > 30%
 
-export function scanEntryOpportunities(marksData, btcPrice, ivRank = null) {
+export function scanEntryOpportunities(marksData, btcPrice, ivRank = null, currentPositions = []) {
   if (!Array.isArray(marksData) || marksData.length === 0 || !btcPrice) {
     return [];
   }
 
   const now = Date.now();
   const parsedContracts = [];
+
+  // Build a set of currently held position symbols and strike-expiry keys
+  const heldSymbols = new Set();
+  const heldKeys = new Set();
+  if (Array.isArray(currentPositions)) {
+    for (const p of currentPositions) {
+      if (p.id) heldSymbols.add(p.id);
+      if (p.strike && p.expiry) {
+        const typeStr = p.type?.toLowerCase().includes("call") ? "C" : "P";
+        heldKeys.add(`${p.expiry}-${p.strike}-${typeStr}`);
+      }
+    }
+  }
 
   for (const m of marksData) {
     if (!m.symbol || !m.symbol.startsWith("BTC-")) continue;
@@ -43,16 +56,20 @@ export function scanEntryOpportunities(marksData, btcPrice, ivRank = null) {
 
     if (markPrice <= 0) continue;
 
+    const expiry = new Date(expMs).toISOString().slice(0, 10);
+    const isHeld = heldSymbols.has(m.symbol) || heldKeys.has(`${expiry}-${strike}-${parts[3]}`);
+
     parsedContracts.push({
       symbol: m.symbol,
       strike,
       type: optType,
-      expiry: new Date(expMs).toISOString().slice(0, 10),
+      expiry,
       dte,
       delta,
       theta,
       markPrice: Math.round(markPrice * 10) / 10,
       iv: Math.round(iv * 10) / 10,
+      isHeld,
     });
   }
 
@@ -92,6 +109,11 @@ export function scanEntryOpportunities(marksData, btcPrice, ivRank = null) {
       const putDistancePct = (((btcPrice - bestPut.strike) / btcPrice) * 100).toFixed(1);
       const callDistancePct = (((bestCall.strike - btcPrice) / btcPrice) * 100).toFixed(1);
 
+      const isPutHeld = Boolean(bestPut.isHeld);
+      const isCallHeld = Boolean(bestCall.isHeld);
+      const isFullyHeld = isPutHeld && isCallHeld;
+      const isPartiallyHeld = isPutHeld || isCallHeld;
+
       // Score: prefer 14-28 DTE, higher premium, well-centered delta
       const isIdealDTE = dte >= 14 && dte <= 28;
       const score = (isIdealDTE ? 100 : 50) + totalPremium / 10;
@@ -120,6 +142,10 @@ export function scanEntryOpportunities(marksData, btcPrice, ivRank = null) {
         callDistancePct,
         ivRank: ivRank || Math.round((bestPut.iv + bestCall.iv) / 2),
         isIdealDTE,
+        isPutHeld,
+        isCallHeld,
+        isFullyHeld,
+        isPartiallyHeld,
         score,
       });
     }
@@ -128,3 +154,4 @@ export function scanEntryOpportunities(marksData, btcPrice, ivRank = null) {
   // Sort by score descending (best setup first)
   return strangles.sort((a, b) => b.score - a.score);
 }
+

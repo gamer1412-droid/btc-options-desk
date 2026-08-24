@@ -37,12 +37,16 @@ export function checkAlerts(positions, alertedIds) {
 // ─── Entry Signal Criteria ──────────────────────────────────────────────────
 // Sends Telegram alert when a matching Short Strangle opportunity is found.
 // Deduplicates so each setup ID is only alerted once per session / day.
+// Automatically SKIPS opportunities if already opened in portfolio.
 export function checkEntryAlerts(opportunities, alertedEntryIds) {
   const newSignals = [];
   if (!Array.isArray(opportunities) || opportunities.length === 0) return newSignals;
 
   for (const opp of opportunities) {
     if (alertedEntryIds.has(opp.id)) continue;
+
+    // Skip if the user already has this position (or either leg) open in portfolio
+    if (opp.isFullyHeld || opp.isPartiallyHeld) continue;
 
     // Only alert for ideal setups matching rules (DTE 14–28 days, IV Rank > 30%)
     if (opp.isIdealDTE && (opp.ivRank >= 30 || !opp.ivRank)) {

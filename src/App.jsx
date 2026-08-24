@@ -74,30 +74,17 @@ export default function App() {
         }
       }
 
-      // ── Scan Entry Opportunities (Short Strangle Candidates) ──────────────
-      if (Array.isArray(marksData) && currentBtcPrice) {
-        const opps = scanEntryOpportunities(marksData, currentBtcPrice, currentIvRank);
-        setOpportunities(opps);
-
-        // Auto-send Telegram Entry Signal when high-probability setup appears
-        if (alertsEnabled && opps.length > 0) {
-          const newEntrySignals = checkEntryAlerts(opps, alertedEntryIdsRef.current);
-          for (const signal of newEntrySignals) {
-            sendTelegram("strangle_signal", signal);
-          }
-        }
-      }
-
       // ── Option positions ────────────────────────────────────────────────────
+      let mappedPositions = [];
       if (Array.isArray(posData)) {
-        const mapped = posData
+        mappedPositions = posData
           .filter(p => Number(p.quantity || p.positionAmount) !== 0)
           .map(p => mapBinancePosition(p, marksMap.get(p.symbol) || {}));
-        setPositions(mapped);
+        setPositions(mappedPositions);
         setConnError(null);
 
         if (alertsEnabled) {
-          const triggered = checkAlerts(mapped, alertedIdsRef.current);
+          const triggered = checkAlerts(mappedPositions, alertedIdsRef.current);
           for (const { pos, reason } of triggered) {
             alertedIdsRef.current.add(pos.id);
             const pct = pos.premium > 0
@@ -115,6 +102,20 @@ export default function App() {
         }
       } else if (posData.error) {
         setConnError(typeof posData.error === "string" ? posData.error : JSON.stringify(posData.error));
+      }
+
+      // ── Scan Entry Opportunities (Short Strangle Candidates) ──────────────
+      if (Array.isArray(marksData) && currentBtcPrice) {
+        const opps = scanEntryOpportunities(marksData, currentBtcPrice, currentIvRank, mappedPositions);
+        setOpportunities(opps);
+
+        // Auto-send Telegram Entry Signal when high-probability setup appears (skips already held positions)
+        if (alertsEnabled && opps.length > 0) {
+          const newEntrySignals = checkEntryAlerts(opps, alertedEntryIdsRef.current);
+          for (const signal of newEntrySignals) {
+            sendTelegram("strangle_signal", signal);
+          }
+        }
       }
 
       setLastSync(new Date());

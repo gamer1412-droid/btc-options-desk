@@ -113,13 +113,20 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, accountInfo, onAna
               }}>
                 {/* Card Top */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${T.border}`, paddingBottom: 12 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <span style={{ color: T.textPrimary, fontFamily: T.font, fontWeight: 700, fontSize: 15 }}>
                       📅 {opp.expiry}
                     </span>
                     <Pill color={opp.isIdealDTE ? T.green : T.textSecondary}>
                       {opp.dte} วัน {opp.isIdealDTE ? "★ IDEAL" : ""}
                     </Pill>
+                    {opp.isFullyHeld ? (
+                      <Pill color={T.blue}>✓ ถือในพอร์ตแล้ว (OPENED)</Pill>
+                    ) : opp.isPutHeld ? (
+                      <Pill color={T.amber}>✓ ถือขา Put แล้ว</Pill>
+                    ) : opp.isCallHeld ? (
+                      <Pill color={T.blue}>✓ ถือขา Call แล้ว</Pill>
+                    ) : null}
                   </div>
 
                   <div style={{ textAlign: "right" }}>
