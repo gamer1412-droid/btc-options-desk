@@ -14,34 +14,39 @@ export function parseAccountInfo(rawAccount) {
     ? (assets.find(a => (a.asset || a.currency) === "USDT") || assets[0] || {})
     : {};
 
+  // Total Equity
   const equity = Number(
     rawAccount.equity ??
+    rawAccount.totalEquity ??
     usdt.equity ??
     rawAccount.marginBalance ??
     usdt.marginBalance ??
-    rawAccount.balance ??
-    usdt.walletBalance ??
     0
   );
 
+  // Margin Balance (Wallet Balance)
   const balance = Number(
+    rawAccount.marginBalance ??
+    usdt.marginBalance ??
     rawAccount.balance ??
     usdt.walletBalance ??
     usdt.balance ??
-    rawAccount.marginBalance ??
-    usdt.marginBalance ??
-    0
+    equity
   );
 
+  // Available Balance / Available Margin
   const availableBalance = Number(
+    rawAccount.availableMargin ??
     rawAccount.availableBalance ??
     rawAccount.available ??
-    usdt.availableBalance ??
     usdt.available ??
+    usdt.availableBalance ??
     0
   );
 
+  // Maintenance Margin / Margin Used
   const marginUsed = Number(
+    rawAccount.maintenanceMargin ??
     rawAccount.maintMargin ??
     rawAccount.initialMargin ??
     rawAccount.locked ??
@@ -51,9 +56,23 @@ export function parseAccountInfo(rawAccount) {
     0
   );
 
+  // Margin Ratio %
+  const marginRatioRaw = Number(
+    rawAccount.marginRatio ??
+    rawAccount.marginRate ??
+    usdt.marginRatio ??
+    0
+  );
+  const marginRatioPct = marginRatioRaw > 0
+    ? (marginRatioRaw <= 1 ? Math.round(marginRatioRaw * 1000) / 10 : Math.round(marginRatioRaw * 10) / 10)
+    : (equity > 0 && marginUsed > 0 ? Math.round((marginUsed / equity) * 1000) / 10 : 0);
+
+  // Unrealized PnL
   const unrealizedPnl = Number(
     rawAccount.unrealizedPNL ??
+    rawAccount.unrealizedPnl ??
     usdt.unrealizedPNL ??
+    usdt.unrealizedPnl ??
     0
   );
 
@@ -63,7 +82,7 @@ export function parseAccountInfo(rawAccount) {
     availableBalance: Math.round(availableBalance * 100) / 100,
     marginUsed: Math.round(marginUsed * 100) / 100,
     unrealizedPnl: Math.round(unrealizedPnl * 100) / 100,
-    marginPct: equity > 0 ? Math.round((marginUsed / equity) * 100) : 0,
+    marginPct: marginRatioPct || (equity > 0 ? Math.round((marginUsed / equity) * 100) : 0),
     hasConnected: true,
   };
 }

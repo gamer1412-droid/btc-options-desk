@@ -29,7 +29,7 @@ function sign(queryString, secret) {
 
 async function signedGet(base, path, params, apiKey, apiSecret) {
   const timestamp = Date.now();
-  const query = new URLSearchParams({ ...params, timestamp, recvWindow: 5000 }).toString();
+  const query = new URLSearchParams({ ...params, timestamp, recvWindow: 60000 }).toString();
   const signature = sign(query, apiSecret);
   const url = `${base}${path}?${query}&signature=${signature}`;
 

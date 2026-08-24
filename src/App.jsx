@@ -45,9 +45,10 @@ export default function App() {
       const acctData   = acctRes ? await acctRes.json().catch(() => null) : null;
 
       // ── Account info ──────────────────────────────────────────────────────
+      let parsedAccount = null;
       if (acctData && !acctData.error) {
-        const parsed = parseAccountInfo(acctData);
-        if (parsed) setAccountInfo(parsed);
+        parsedAccount = parseAccountInfo(acctData);
+        if (parsedAccount) setAccountInfo(parsedAccount);
       }
 
       // ── BTC spot price & Market Context ──────────────────────────────────
@@ -121,7 +122,7 @@ export default function App() {
 
         // Auto-send Telegram Entry Signal when high-probability setup appears (skips already held positions)
         if (alertsEnabled && opps.length > 0) {
-          const newEntrySignals = checkEntryAlerts(opps, alertedEntryIdsRef.current, updatedMarketContext, accountInfo, mappedPositions);
+          const newEntrySignals = checkEntryAlerts(opps, alertedEntryIdsRef.current, updatedMarketContext, parsedAccount, mappedPositions);
           for (const signal of newEntrySignals) {
             sendTelegram("strangle_signal", signal);
           }
@@ -134,7 +135,7 @@ export default function App() {
     } finally {
       setLoadingPositions(false);
     }
-  }, [alertsEnabled, accountInfo]);
+  }, [alertsEnabled]);
 
   useEffect(() => {
     fetchLiveData();
