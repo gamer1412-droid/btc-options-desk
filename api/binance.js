@@ -44,9 +44,13 @@ async function signedGet(base, path, params, apiKey, apiSecret) {
 }
 
 export default async function handler(req, res) {
-  // CORS for your frontend
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  // CORS — restrict to your deployed frontend origin.
+  // Set ALLOWED_ORIGIN in Vercel Environment Variables (e.g. https://btc-options-desk.vercel.app)
+  // Falls back to * during local dev when env var is absent.
+  const allowedOrigin = process.env.ALLOWED_ORIGIN ?? "*";
+  res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(200).end();
 
   const { action } = req.query;

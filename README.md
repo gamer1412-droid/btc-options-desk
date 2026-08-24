@@ -1,27 +1,39 @@
 # BTC Options Desk
 
-Dashboard ติดตาม BTC Options positions บน Binance แบบ real-time พร้อม AI วิเคราะห์ (ขับเคลื่อนโดย Claude)
+Dashboard ติดตาม BTC Options positions บน Binance แบบ real-time พร้อม AI วิเคราะห์ (ขับเคลื่อนโดย **Groq + Llama 3.3**) และ Telegram alert อัตโนมัติ
 
 ## โครงสร้างโปรเจกต์
 
 ```
 btc-options-desk/
 ├── api/
-│   ├── binance.js      ← Vercel function: proxy Binance API (แก้ CORS + เซ็น request)
-│   └── analyze.js      ← Vercel function: proxy Claude API (ซ่อน API key)
+│   ├── binance.js          ← Vercel function: proxy Binance API (แก้ CORS + เซ็น request)
+│   ├── analyze.js          ← Vercel function: proxy Groq API (ซ่อน API key)
+│   └── telegram.js         ← Vercel function: ส่ง alert ไป Telegram Bot
 ├── src/
-│   ├── App.jsx          ← หน้าหลักของแอป
-│   └── main.jsx
+│   ├── App.jsx             ← หน้าหลักของแอป
+│   ├── main.jsx
+│   ├── tokens.js           ← Design tokens (สี, font)
+│   ├── utils.js            ← Helper functions
+│   ├── components/
+│   │   ├── AnalysisPanel.jsx
+│   │   ├── MetricCard.jsx
+│   │   ├── Pill.jsx
+│   │   └── PositionRow.jsx
+│   └── services/
+│       ├── alerts.js       ← Alert logic + Telegram sender
+│       └── binance.js      ← Binance data mapper
 ├── index.html
 ├── package.json
 ├── vercel.json
+├── .gitignore
 └── .env.example
 ```
 
 ## ทำไมต้องมี backend (api/) ด้วย
 
 1. **CORS**: Binance ไม่อนุญาตให้ browser เรียก API ตรงๆ ต้องมี server กลาง
-2. **ความปลอดภัย**: API Key/Secret ของ Binance และ Anthropic ต้องไม่ถูกส่งไปที่ browser
+2. **ความปลอดภัย**: API Key/Secret ของ Binance และ Groq ต้องไม่ถูกส่งไปที่ browser
    ต้องเก็บไว้ใน server-side environment variables เท่านั้น
 
 Vercel Serverless Functions (โฟลเดอร์ `api/`) ทำหน้าที่นี้ — deploy ไปพร้อมกับ frontend ได้เลย ไม่ต้องมี server แยก
@@ -44,6 +56,7 @@ Vercel Serverless Functions (โฟลเดอร์ `api/`) ทำหน้า
 - Sign up ฟรี (ไม่ต้อง credit card)
 - ได้ API key ทันที
 - Free tier ใช้ได้ดี rate limit 30 req/นาที
+- โมเดลที่ใช้: `llama-3.3-70b-versatile` (เร็ว ฟรี)
 
 ### 3. Push โค้ดขึ้น GitHub
 
@@ -71,6 +84,7 @@ git push -u origin main
    | `GROQ_API_KEY` | Groq key (ฟรี) |
    | `TELEGRAM_BOT_TOKEN` | Bot token จาก @BotFather |
    | `TELEGRAM_CHAT_ID` | Chat ID ของคุณ |
+   | `ALLOWED_ORIGIN` | URL ของ Vercel app เช่น `https://btc-options-desk-xxxx.vercel.app` |
 
 5. กด **Deploy**
 
@@ -109,7 +123,9 @@ vercel dev
 
 - **Live position tracking** — sync กับ Binance ทุก 15 วินาที
 - **Auto health classification** — position จะถูกจัดเป็น healthy / warning / danger ตาม Delta และ DTE อัตโนมัติ
-- **AI Analysis** — กดปุ่ม "AI ANALYZE" ที่ position ไหนก็ได้ Claude จะวิเคราะห์และแนะนำ action เป็นภาษาไทย
+- **AI Analysis** — กดปุ่ม "AI ANALYZE" ที่ position ไหนก็ได้ Groq (Llama 3.3) จะวิเคราะห์และแนะนำ action เป็นภาษาไทย
+- **Telegram Alerts** — แจ้งเตือนอัตโนมัติผ่าน Telegram เมื่อ Delta ≥ 0.40 / Profit ≥ 50% / Loss = 2× premium / DTE ≤ 2
+- **Market IV card** — แสดง IV เฉลี่ยตลาด BTC options ปัจจุบัน
 - **Rules reference** — แท็บ Rules เก็บกฎ Entry/Exit/Roll/Stop-Loss ที่ตั้งไว้
 
 ## ข้อจำกัดที่ควรรู้
@@ -117,4 +133,4 @@ vercel dev
 - แอปนี้เป็น **read-only** — ไม่มีการส่งคำสั่งซื้อขายใดๆ ไปที่ Binance ทั้งสิ้น การ Close/Roll position ต้องทำเองในแอป Binance
 - Poll ทุก 15 วินาที ไม่ใช่ WebSocket แบบ tick-by-tick — เพียงพอสำหรับติดตาม theta decay รายวัน แต่ไม่เหมาะกับ scalping
 - AI Analysis เป็นเครื่องมือช่วยตัดสินใจ ไม่ใช่คำแนะนำทางการเงิน ควรใช้ประกอบกับดุลยพินิจของคุณเองเสมอ
-- ยังไม่มีระบบแจ้งเตือนอัตโนมัติ (push notification/LINE/Telegram) — ต้องเปิดแอปเพื่อดูสถานะ
+- IV ที่แสดงใน dashboard คือ IV เฉลี่ยของตลาด ณ ขณะนั้น ไม่ใช่ IV Rank แบบ 52-สัปดาห์ (ต้องมี database ประวัติ)
