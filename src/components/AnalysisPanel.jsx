@@ -14,7 +14,40 @@ export function AnalysisPanel({ pos, btcPrice, ivRank, onClose }) {
     // ivRank comes from parent (calculated from optionMarks) — may be null
     const ivRankStr = ivRank != null ? `${ivRank}%` : "ไม่มีข้อมูล (ดู IV ของ position แทน)";
 
-    const prompt = `You are an expert BTC options trader specializing in short premium strategies (Short Strangle).
+    const isStrangleSetup = pos.strategy === "STRANGLE";
+
+    let prompt = "";
+    if (isStrangleSetup) {
+      prompt = `You are an expert BTC options trader specializing in Short Strangle strategies.
+Analyze this proposed SHORT STRANGLE ENTRY OPPORTUNITY on Binance Options.
+
+MARKET DATA:
+- BTC Price: $${btcPrice?.toLocaleString() ?? "unknown"}
+- Market IV: ${ivRankStr}
+
+PROPOSED STRANGLE SETUP:
+- Expiry: ${pos.expiry} (${pos.dte} days to expiry)
+- Short Put: Strike $${Number(pos.putStrike).toLocaleString()} (Delta: ${pos.putDelta}, IV: ${pos.putIV}%, Mark: $${pos.putMark})
+- Short Call: Strike $${Number(pos.callStrike).toLocaleString()} (Delta: +${pos.callDelta}, IV: ${pos.callIV}%, Mark: $${pos.callMark})
+- Total Premium: ~$${pos.totalPremium} / 1 BTC
+- Total Theta: +$${pos.totalTheta}/day
+- Breakeven Range: $${Number(pos.breakevenLow).toLocaleString()} – $${Number(pos.breakevenHigh).toLocaleString()}
+
+Respond in Thai language. Format your response as:
+
+**สถานะ:** [GOOD TO ENTER / WAIT / AVOID]
+**Action แนะนำ:** [OPEN POSITION / WAIT FOR BETTER IV / ADJUST STRIKE]
+
+**การประเมินความคุ้มค่าและความเสี่ยง:** (3-4 ประโยค อธิบายความกว้างของ Safe Zone, IV และ Theta)
+
+**แผนการจัดการ Position (Plan of Action):**
+- Take Profit: [แนะนำจุดปิดทำกำไร 50% หรือเวลาที่เหมาะสม]
+- Stop Loss: [แนะนำจุดตัดขาดทุนเมื่อราคาแตะ Strike หรือ 2x Premium]
+- Roll Plan: [จังหวะที่ควร Roll ขยายเวลา]
+
+**คำแนะนำการเปิดออเดอร์บน Binance:** (สรุปสิ่งที่ต้องเปิดใน Binance Options)`;
+    } else {
+      prompt = `You are an expert BTC options trader specializing in short premium strategies (Short Strangle).
 Analyze this position and give a concise, actionable recommendation.
 
 MARKET DATA:
@@ -48,6 +81,7 @@ Respond in Thai language. Format your response as:
 **หากราคา BTC เคลื่อนไหว:**
 - ถ้าขึ้น: [แนะนำอะไร]
 - ถ้าลง: [แนะนำอะไร]`;
+    }
 
     try {
       const response = await fetch("/api/analyze", {
@@ -80,8 +114,19 @@ Respond in Thai language. Format your response as:
             <span style={{ color: T.green, fontFamily: T.font, fontWeight: 700, fontSize: 14, letterSpacing: 2 }}>AI ANALYSIS ENGINE</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <Pill color={isCall ? T.blue : T.amber}>{pos.type}</Pill>
-            <span style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 14 }}>Strike {fmtUSD(pos.strike)}</span>
+            {isStrangleSetup ? (
+              <>
+                <Pill color={T.green}>SHORT STRANGLE</Pill>
+                <span style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 13 }}>
+                  Put {fmtUSD(pos.putStrike)} / Call {fmtUSD(pos.callStrike)}
+                </span>
+              </>
+            ) : (
+              <>
+                <Pill color={isCall ? T.blue : T.amber}>{pos.type}</Pill>
+                <span style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 14 }}>Strike {fmtUSD(pos.strike)}</span>
+              </>
+            )}
             <button
               id="analysis-panel-close"
               onClick={onClose}

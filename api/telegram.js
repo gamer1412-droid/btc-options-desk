@@ -32,6 +32,34 @@ export default async function handler(req, res) {
     message = "✅ *BTC Options Desk* เชื่อมต่อสำเร็จแล้วครับ!";
   }
 
+  else if (type === "strangle_signal" || (type === "signal" && data.strategy === "STRANGLE")) {
+    // data: { putStrike, putDelta, putIV, putMark, callStrike, callDelta, callIV, callMark, expiry, dte, btcPrice, totalPremium, totalTheta, breakevenLow, breakevenHigh, ivRank }
+    const d = data;
+    message = `🟢 *ENTRY SIGNAL — BTC Short Strangle*
+
+📅 *Expiry:* ${d.expiry} (${d.dte} วัน)
+₿ *BTC Spot:* $${Number(d.btcPrice).toLocaleString()}
+📊 *Market IV:* ${d.ivRank || d.avgIV}%
+
+📍 *Short Put:*
+  • Strike: *$${Number(d.putStrike).toLocaleString()}*
+  • Delta: \`${d.putDelta}\` | IV: ${d.putIV}%
+  • Mark: $${d.putMark}
+
+📍 *Short Call:*
+  • Strike: *$${Number(d.callStrike).toLocaleString()}*
+  • Delta: \`+${d.callDelta}\` | IV: ${d.callIV}%
+  • Mark: $${d.callMark}
+
+💰 *รวม Premium รับ:* ~$${d.totalPremium} / 1 BTC
+⏱ *Theta Decay:* +$${d.totalTheta}/วัน
+🛡️ *Safe Zone (Breakeven):*
+  $${Number(d.breakevenLow).toLocaleString()} — $${Number(d.breakevenHigh).toLocaleString()}
+
+💡 *เหตุผล:* เข้าเกณฑ์ Delta (Call 0.15-0.20, Put 0.20-0.25) และ DTE ตามกฎ Entry
+⚡ _เปิด Binance Options แล้วพิจารณาเข้าตามวินัยครับ_`;
+  }
+
   else if (type === "signal") {
     // data: { signalType, strike, expiry, dte, delta, iv, premiumEst, btcPrice, reason }
     const d = data;

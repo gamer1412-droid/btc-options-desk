@@ -2,27 +2,31 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { T } from "./tokens.js";
 import { fmtUSD, pnlColor } from "./utils.js";
 import { mapBinancePosition } from "./services/binance.js";
-import { sendTelegram, checkAlerts } from "./services/alerts.js";
+import { sendTelegram, checkAlerts, checkEntryAlerts } from "./services/alerts.js";
+import { scanEntryOpportunities } from "./services/scanner.js";
 import { MetricCard } from "./components/MetricCard.jsx";
 import { Pill } from "./components/Pill.jsx";
 import { PositionRow, POSITION_GRID_COLS } from "./components/PositionRow.jsx";
 import { AnalysisPanel } from "./components/AnalysisPanel.jsx";
+import { ScannerTab } from "./components/ScannerTab.jsx";
 
 const POLL_INTERVAL_MS = 15000; // refresh live data every 15 s
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
-  const [positions, setPositions]             = useState([]);
-  const [btcPrice, setBtcPrice]               = useState(null);
-  const [ivRank, setIvRank]                   = useState(null); // market-wide BTC IV (avg of ATM options)
-  const [connError, setConnError]             = useState(null);
+  const [positions, setPositions]               = useState([]);
+  const [opportunities, setOpportunities]       = useState([]);
+  const [btcPrice, setBtcPrice]                 = useState(null);
+  const [ivRank, setIvRank]                     = useState(null); // market-wide BTC IV (avg of ATM options)
+  const [connError, setConnError]               = useState(null);
   const [loadingPositions, setLoadingPositions] = useState(true);
-  const [lastSync, setLastSync]               = useState(null);
-  const [analyzing, setAnalyzing]             = useState(null);
-  const [tab, setTab]                         = useState("positions");
-  const [telegramStatus, setTelegramStatus]   = useState(null); // "ok" | "error" | null
-  const [alertsEnabled, setAlertsEnabled]     = useState(true);
+  const [lastSync, setLastSync]                 = useState(null);
+  const [analyzing, setAnalyzing]               = useState(null);
+  const [tab, setTab]                           = useState("positions"); // "positions" | "scanner" | "rules"
+  const [telegramStatus, setTelegramStatus]     = useState(null); // "ok" | "error" | null
+  const [alertsEnabled, setAlertsEnabled]       = useState(true);
   const alertedIdsRef = useRef(new Set());
+  const alertedEntryIdsRef = useRef(new Set());
 
   const fetchLiveData = useCallback(async () => {
     try {
@@ -36,18 +40,19 @@ export default function App() {
       const marksData = await marksRes.json();
 
       // ── BTC spot price ──────────────────────────────────────────────────────
-      if (priceData.price) setBtcPrice(priceData.price);
+      const currentBtcPrice = priceData.price || null;
+      if (currentBtcPrice) setBtcPrice(currentBtcPrice);
 
       // ── Market IV (average of all available option marks) ──────────────────
-      // Used as a proxy for IV Rank in the AI prompt.
-      // A proper IV Rank would require 52-week IV history — stored server-side.
+      let currentIvRank = null;
       if (Array.isArray(marksData) && marksData.length > 0) {
         const ivValues = marksData
           .map(m => parseFloat(m.markIV))
           .filter(v => !isNaN(v) && v > 0);
         if (ivValues.length > 0) {
           const avgIV = ivValues.reduce((s, v) => s + v, 0) / ivValues.length;
-          setIvRank(Math.round(avgIV * 100)); // convert 0.xx fraction → %
+          currentIvRank = Math.round(avgIV * 100);
+          setIvRank(currentIvRank);
         }
       }
 
@@ -56,6 +61,20 @@ export default function App() {
       if (Array.isArray(marksData)) {
         for (const m of marksData) {
           if (m.symbol) marksMap.set(m.symbol, m);
+        }
+      }
+
+      // ── Scan Entry Opportunities (Short Strangle Candidates) ──────────────
+      if (Array.isArray(marksData) && currentBtcPrice) {
+        const opps = scanEntryOpportunities(marksData, currentBtcPrice, currentIvRank);
+        setOpportunities(opps);
+
+        // Auto-send Telegram Entry Signal when high-probability setup appears
+        if (alertsEnabled && opps.length > 0) {
+          const newEntrySignals = checkEntryAlerts(opps, alertedEntryIdsRef.current);
+          for (const signal of newEntrySignals) {
+            sendTelegram("strangle_signal", signal);
+          }
         }
       }
 
@@ -206,10 +225,31 @@ export default function App() {
       </div>
 
       {/* ── Tabs ────────────────────────────────────────────────────────────── */}
-      <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, marginLeft: 24 }}>
-        <button id="tab-positions" style={tabStyle("positions")} onClick={() => setTab("positions")}>POSITIONS</button>
-        <button id="tab-rules"     style={tabStyle("rules")}     onClick={() => setTab("rules")}>RULES</button>
+      <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, marginLeft: 24, gap: 4 }}>
+        <button id="tab-positions" style={tabStyle("positions")} onClick={() => setTab("positions")}>
+          POSITIONS ({positions.length})
+        </button>
+
+        <button id="tab-scanner" style={tabStyle("scanner")} onClick={() => setTab("scanner")}>
+          🎯 SCANNER {opportunities.length > 0 && `(${opportunities.length})`}
+        </button>
+
+        <button id="tab-rules" style={tabStyle("rules")} onClick={() => setTab("rules")}>
+          RULES
+        </button>
       </div>
+
+      {/* ── Scanner Tab ──────────────────────────────────────────────────────── */}
+      {tab === "scanner" && (
+        <div style={{ paddingTop: 20 }}>
+          <ScannerTab
+            opportunities={opportunities}
+            btcPrice={btcPrice}
+            ivRank={ivRank}
+            onAnalyzeStrangle={setAnalyzing}
+          />
+        </div>
+      )}
 
       {/* ── Positions Tab ────────────────────────────────────────────────────── */}
       {tab === "positions" && (
