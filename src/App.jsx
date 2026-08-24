@@ -257,14 +257,18 @@ export default function App() {
             sub={Math.abs(marketContext.distFromMA20) > 10 ? "Extreme Trend" : Math.abs(marketContext.distFromMA20) > 7 ? "Elevated (50% Size)" : "Normal Regime"}
           />
         )}
-        {accountInfo && (
-          <MetricCard
-            label="Account Equity"
-            value={fmtUSD(accountInfo.equity)}
-            color={T.blue}
-            sub={`Margin ${accountInfo.marginPct}% / 30% Max`}
-          />
-        )}
+        <MetricCard
+          label="Account Equity"
+          value={accountInfo ? fmtUSD(accountInfo.equity) : "$0"}
+          color={T.blue}
+          sub={accountInfo ? `Margin ${accountInfo.marginPct}% / 30% Max` : "Binance Options Wallet"}
+        />
+        <MetricCard
+          label="Available Margin"
+          value={accountInfo ? fmtUSD(accountInfo.availableBalance) : "$0"}
+          color={T.green}
+          sub={accountInfo ? `Wallet $${Number(accountInfo.balance).toLocaleString()}` : "พร้อมเปิด Position"}
+        />
       </div>
 
       {/* ── Tabs ────────────────────────────────────────────────────────────── */}

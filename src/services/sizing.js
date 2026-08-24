@@ -2,31 +2,69 @@ import { STRATEGY_CONFIG } from "../config/strategyConfig.js";
 
 /**
  * Parse Binance /eapi/v1/account response into a clean object.
- * The response contains an array of asset details; we extract USDT balances.
+ * Supports all Binance European Options schema variations.
  */
 export function parseAccountInfo(rawAccount) {
   if (!rawAccount) return null;
 
   const assets = rawAccount.asset ?? rawAccount.assets ?? [];
 
-  // Find USDT asset info
+  // Find USDT asset info (or fallback to first asset or root)
   const usdt = Array.isArray(assets)
-    ? assets.find(a => (a.asset || a.currency) === "USDT") || {}
+    ? (assets.find(a => (a.asset || a.currency) === "USDT") || assets[0] || {})
     : {};
 
-  const equity = Number(rawAccount.equity ?? usdt.equity ?? 0);
-  const balance = Number(rawAccount.balance ?? usdt.walletBalance ?? usdt.balance ?? 0);
-  const availableBalance = Number(rawAccount.availableBalance ?? usdt.availableBalance ?? 0);
-  const marginUsed = Number(rawAccount.maintMargin ?? rawAccount.marginBalance ?? 0);
-  const unrealizedPnl = Number(rawAccount.unrealizedPNL ?? usdt.unrealizedPNL ?? 0);
+  const equity = Number(
+    rawAccount.equity ??
+    usdt.equity ??
+    rawAccount.marginBalance ??
+    usdt.marginBalance ??
+    rawAccount.balance ??
+    usdt.walletBalance ??
+    0
+  );
+
+  const balance = Number(
+    rawAccount.balance ??
+    usdt.walletBalance ??
+    usdt.balance ??
+    rawAccount.marginBalance ??
+    usdt.marginBalance ??
+    0
+  );
+
+  const availableBalance = Number(
+    rawAccount.availableBalance ??
+    rawAccount.available ??
+    usdt.availableBalance ??
+    usdt.available ??
+    0
+  );
+
+  const marginUsed = Number(
+    rawAccount.maintMargin ??
+    rawAccount.initialMargin ??
+    rawAccount.locked ??
+    usdt.locked ??
+    usdt.maintMargin ??
+    usdt.initialMargin ??
+    0
+  );
+
+  const unrealizedPnl = Number(
+    rawAccount.unrealizedPNL ??
+    usdt.unrealizedPNL ??
+    0
+  );
 
   return {
-    equity,           // Total account value (balance + unrealized P&L)
-    balance,          // Wallet balance (realized)
-    availableBalance, // Available for new positions
-    marginUsed,       // Currently used margin
-    unrealizedPnl,
+    equity: Math.round(equity * 100) / 100,
+    balance: Math.round(balance * 100) / 100,
+    availableBalance: Math.round(availableBalance * 100) / 100,
+    marginUsed: Math.round(marginUsed * 100) / 100,
+    unrealizedPnl: Math.round(unrealizedPnl * 100) / 100,
     marginPct: equity > 0 ? Math.round((marginUsed / equity) * 100) : 0,
+    hasConnected: true,
   };
 }
 
