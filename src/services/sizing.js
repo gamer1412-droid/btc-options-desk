@@ -51,46 +51,48 @@ const LOT_SIZES = [0.01, 0.02, 0.03, 0.05, 0.10, 0.20, 0.50, 1.0];
  * @returns {object} Sizing recommendations
  */
 export function calculatePositionSize(accountInfo, opp, btcPrice) {
-  if (!accountInfo || !opp || !btcPrice || accountInfo.equity <= 0) {
+  if (!opp || !btcPrice) {
     return {
       available: false,
-      reason: "ไม่สามารถดึงข้อมูลบัญชีได้",
+      reason: "ไม่มีข้อมูลคู่สัญญา",
       lots: [],
     };
   }
 
-  const { equity, marginUsed, availableBalance } = accountInfo;
+  const equity = Number(accountInfo?.equity || 0);
+  const marginUsed = Number(accountInfo?.marginUsed || 0);
+  const availableBalance = Number(accountInfo?.availableBalance || 0);
+  const hasRealAccount = equity > 0;
 
   // ─── Trading Rules ────────────────────────────────────────────────────────
   const MAX_MARGIN_PCT = 0.40;     // Max 40% of equity as total margin
   const PER_TRADE_PCT = 0.05;      // Max 5% of equity per trade
 
-  // Available margin headroom
-  const maxTotalMargin = equity * MAX_MARGIN_PCT;
-  const marginHeadroom = Math.max(0, maxTotalMargin - marginUsed);
-  const perTradeMax = equity * PER_TRADE_PCT;
+  const maxTotalMargin = hasRealAccount ? equity * MAX_MARGIN_PCT : 0;
+  const marginHeadroom = hasRealAccount ? Math.max(0, maxTotalMargin - marginUsed) : 0;
+  const perTradeMax = hasRealAccount ? equity * PER_TRADE_PCT : 0;
 
-  // ─── Estimate margin per lot ──────────────────────────────────────────────
-  // Binance Options Short Strangle margin ≈ max(put_margin, call_margin) + other_leg_premium
-  // Simplified estimate: ~15-25% of notional per lot (1 lot = 1 BTC notional equivalent)
-  // More conservative: use 20% of BTC price as margin per 1 BTC
-  // For fractional lots: margin_per_lot = margin_per_btc × lot_size
-  const marginPerBtc = btcPrice * 0.20; // ~20% of BTC price as margin estimate
-  const totalPremiumPerBtc = opp.totalPremium || 0;
+  // ─── Margin estimation per 1 BTC ──────────────────────────────────────────
+  // For Strangle: margin ≈ 20% of BTC price
+  // For Single Leg (Put or Call): margin ≈ 15% of BTC price
+  const isSingleLeg = opp.strategy === "SINGLE_PUT" || opp.strategy === "SINGLE_CALL";
+  const marginPerBtc = btcPrice * (isSingleLeg ? 0.15 : 0.20);
+  const totalPremiumPerBtc = opp.totalPremium || opp.markPrice || 0;
+  const totalThetaPerBtc = opp.totalTheta || Math.abs(opp.theta || 0);
 
   // ─── Calculate lot recommendations ────────────────────────────────────────
   const lots = LOT_SIZES.map(size => {
     const marginRequired = marginPerBtc * size;
     const premiumReceived = totalPremiumPerBtc * size;
     const maxLoss = (totalPremiumPerBtc * 2) * size; // 2× premium stop-loss rule
-    const riskPct = equity > 0 ? (maxLoss / equity) * 100 : 0;
-    const marginPctOfEquity = equity > 0 ? (marginRequired / equity) * 100 : 0;
-    const thetaPerDay = (opp.totalTheta || 0) * size;
+    const riskPct = hasRealAccount ? (maxLoss / equity) * 100 : 0;
+    const marginPctOfEquity = hasRealAccount ? (marginRequired / equity) * 100 : 0;
+    const thetaPerDay = totalThetaPerBtc * size;
 
     // Can we afford this lot?
-    const canAfford = marginRequired <= marginHeadroom && marginRequired <= availableBalance;
+    const canAfford = hasRealAccount ? (marginRequired <= marginHeadroom && marginRequired <= availableBalance) : true;
     // Does it comply with 5% per-trade rule?
-    const withinRule = marginRequired <= perTradeMax;
+    const withinRule = hasRealAccount ? (marginRequired <= perTradeMax) : (size <= 0.02);
 
     return {
       size,
@@ -98,8 +100,8 @@ export function calculatePositionSize(accountInfo, opp, btcPrice) {
       marginRequired: Math.round(marginRequired),
       premiumReceived: Math.round(premiumReceived),
       maxLoss: Math.round(maxLoss),
-      riskPct: riskPct.toFixed(1),
-      marginPctOfEquity: marginPctOfEquity.toFixed(1),
+      riskPct: riskPct > 0 ? riskPct.toFixed(1) : "-",
+      marginPctOfEquity: marginPctOfEquity > 0 ? marginPctOfEquity.toFixed(1) : "-",
       thetaPerDay: thetaPerDay.toFixed(1),
       canAfford,
       withinRule,
@@ -107,17 +109,17 @@ export function calculatePositionSize(accountInfo, opp, btcPrice) {
     };
   });
 
-  // Find the recommended (largest lot that fits within rules)
+  // Recommended lot
   const recommendedLots = lots.filter(l => l.isRecommended);
   const bestLot = recommendedLots.length > 0
-    ? recommendedLots[recommendedLots.length - 1] // largest that fits
-    : null;
+    ? recommendedLots[recommendedLots.length - 1]
+    : lots[0];
 
-  // Default starting lot (user prefers 0.01)
   const defaultLot = lots.find(l => l.size === 0.01) || lots[0];
 
   return {
     available: true,
+    hasRealAccount,
     equity: Math.round(equity),
     marginUsed: Math.round(marginUsed),
     marginHeadroom: Math.round(marginHeadroom),
@@ -125,7 +127,8 @@ export function calculatePositionSize(accountInfo, opp, btcPrice) {
     maxTotalMargin: Math.round(maxTotalMargin),
     marginPerBtc: Math.round(marginPerBtc),
     lots,
-    recommendedLot: bestLot,
+    recommendedLot: hasRealAccount ? bestLot : defaultLot,
     defaultLot,
   };
 }
+
