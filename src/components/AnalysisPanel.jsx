@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { T } from "../tokens.js";
 import { fmtUSD, renderAnalysisHtml } from "../utils.js";
 import { Pill } from "./Pill.jsx";
@@ -10,12 +10,18 @@ export function AnalysisPanel({ pos, btcPrice, ivRank, onClose }) {
   const isStrangleSetup = pos?.strategy === "STRANGLE";
   const isCall = Boolean(pos?.type?.includes("Call"));
 
+  // Keep references to prevent 15-second background price polling from re-triggering analysis while user is reading
+  const propsRef = useRef({ pos, btcPrice, ivRank });
+  propsRef.current = { pos, btcPrice, ivRank };
+
   const runAnalysis = useCallback(async () => {
     setLoading(true);
     setAnalysisHtml("");
 
+    const { pos: currentPos, btcPrice: currentBtcPrice, ivRank: currentIvRank } = propsRef.current;
+
     // ivRank comes from parent (calculated from optionMarks) — may be null
-    const ivRankStr = ivRank != null ? `${ivRank}%` : "ไม่มีข้อมูล (ดู IV ของ position แทน)";
+    const ivRankStr = currentIvRank != null ? `${currentIvRank}%` : "ไม่มีข้อมูล (ดู IV ของ position แทน)";
 
     let prompt = "";
     if (isStrangleSetup) {
@@ -23,16 +29,16 @@ export function AnalysisPanel({ pos, btcPrice, ivRank, onClose }) {
 Analyze this proposed SHORT STRANGLE ENTRY OPPORTUNITY on Binance Options.
 
 MARKET DATA:
-- BTC Price: $${btcPrice?.toLocaleString() ?? "unknown"}
+- BTC Price: $${currentBtcPrice?.toLocaleString() ?? "unknown"}
 - Market IV: ${ivRankStr}
 
 PROPOSED STRANGLE SETUP:
-- Expiry: ${pos.expiry} (${pos.dte} days to expiry)
-- Short Put: Strike $${Number(pos.putStrike).toLocaleString()} (Delta: ${pos.putDelta}, IV: ${pos.putIV}%, Mark: $${pos.putMark})
-- Short Call: Strike $${Number(pos.callStrike).toLocaleString()} (Delta: +${pos.callDelta}, IV: ${pos.callIV}%, Mark: $${pos.callMark})
-- Total Premium: ~$${pos.totalPremium} / 1 BTC
-- Total Theta: +$${pos.totalTheta}/day
-- Breakeven Range: $${Number(pos.breakevenLow).toLocaleString()} – $${Number(pos.breakevenHigh).toLocaleString()}
+- Expiry: ${currentPos.expiry} (${currentPos.dte} days to expiry)
+- Short Put: Strike $${Number(currentPos.putStrike).toLocaleString()} (Delta: ${currentPos.putDelta}, IV: ${currentPos.putIV}%, Mark: $${currentPos.putMark})
+- Short Call: Strike $${Number(currentPos.callStrike).toLocaleString()} (Delta: +${currentPos.callDelta}, IV: ${currentPos.callIV}%, Mark: $${currentPos.callMark})
+- Total Premium: ~$${currentPos.totalPremium} / 1 BTC
+- Total Theta: +$${currentPos.totalTheta}/day
+- Breakeven Range: $${Number(currentPos.breakevenLow).toLocaleString()} – $${Number(currentPos.breakevenHigh).toLocaleString()}
 
 Respond in Thai language. Format your response as:
 
@@ -52,20 +58,20 @@ Respond in Thai language. Format your response as:
 Analyze this position and give a concise, actionable recommendation.
 
 MARKET DATA:
-- BTC Price: $${btcPrice?.toLocaleString() ?? "unknown"}
+- BTC Price: $${currentBtcPrice?.toLocaleString() ?? "unknown"}
 - IV Rank: ${ivRankStr}
 
 POSITION:
-- Type: ${pos.type}
-- Strike: $${Number(pos.strike).toLocaleString()}
-- DTE: ${pos.dte} days
-- Delta: ${pos.delta}
-- Theta: $${pos.theta}/day
-- Vega: ${pos.vega}
-- IV: ${pos.iv?.toFixed?.(1) ?? pos.iv}%
-- Premium received: $${pos.premium}
-- Current value: $${pos.currentPrice}
-- Unrealized P&L: ${pos.pnl >= 0 ? "+" : ""}$${pos.pnl}
+- Type: ${currentPos.type}
+- Strike: $${Number(currentPos.strike).toLocaleString()}
+- DTE: ${currentPos.dte} days
+- Delta: ${currentPos.delta}
+- Theta: $${currentPos.theta}/day
+- Vega: ${currentPos.vega}
+- IV: ${currentPos.iv?.toFixed?.(1) ?? currentPos.iv}%
+- Premium received: $${currentPos.premium}
+- Current value: $${currentPos.currentPrice}
+- Unrealized P&L: ${currentPos.pnl >= 0 ? "+" : ""}$${currentPos.pnl}
 
 Respond in Thai language. Format your response as:
 
@@ -99,9 +105,12 @@ Respond in Thai language. Format your response as:
     } finally {
       setLoading(false);
     }
-  }, [pos, btcPrice, ivRank]);
+  }, [isStrangleSetup]);
 
-  useEffect(() => { runAnalysis(); }, [runAnalysis]);
+  // Run analysis only ONCE when modal is opened, not on every background 15s poll
+  useEffect(() => {
+    runAnalysis();
+  }, [runAnalysis]);
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "#000000cc", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(4px)" }}>
