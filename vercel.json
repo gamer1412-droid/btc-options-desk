@@ -1,0 +1,6 @@
+{
+  "functions": {
+    "api/binance.js": { "maxDuration": 10 },
+    "api/analyze.js": { "maxDuration": 15 }
+  }
+}
