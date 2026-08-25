@@ -150,7 +150,7 @@ export default function App() {
   }, [fetchLiveData]);
 
   const totalPnl   = positions.reduce((s, p) => s + p.pnl, 0);
-  const totalTheta = positions.reduce((s, p) => s + Math.abs(p.theta), 0);
+  const totalTheta = positions.reduce((s, p) => s + (Math.abs(p.theta) * (p.size || 1)), 0);
   const warnings   = positions.filter(p => p.status === "warning" || p.status === "danger").length;
   const capacity   = calculatePortfolioCapacity(accountInfo, positions, btcPrice, marketContext, opportunities);
 
@@ -257,7 +257,7 @@ export default function App() {
               )}
             </div>
             <div style={{ color: T.textPrimary, fontSize: 18, fontWeight: 800, fontFamily: T.font }}>
-              {btcPrice ? fmtUSD(btcPrice) : "—"}
+              {btcPrice ? fmtUSD(btcPrice, 0) : "—"}
             </div>
           </div>
         </div>
@@ -275,10 +275,10 @@ export default function App() {
 
       {/* ── Metric Cards ─────────────────────────────────────────────────────── */}
       <div style={{ display: "flex", gap: 12, padding: "16px 24px", flexWrap: "wrap" }}>
-        <MetricCard label="Account Equity" value={accountInfo ? fmtUSD(accountInfo.equity) : "$0"} color={T.blue} sub={accountInfo ? `Margin ${accountInfo.marginPct}% / 30% Max` : "Binance Options"} />
-        <MetricCard label="Available Margin" value={accountInfo ? fmtUSD(accountInfo.availableBalance) : "$0"} color={T.green} sub={accountInfo ? `Balance ${fmtUSD(accountInfo.balance)}` : "พร้อมเทรด"} />
-        <MetricCard label="Unrealized P&L" value={`${totalPnl >= 0 ? "+" : ""}${fmtUSD(totalPnl)}`} color={pnlColor(totalPnl)} sub="รวมทุก position" />
-        <MetricCard label="Theta / Day" value={`$${totalTheta.toFixed(0)}`} color={T.green} sub="รายได้ต่อวัน" />
+        <MetricCard label="Account Equity" value={accountInfo ? fmtUSD(accountInfo.equity, 2) : "$0.00"} color={T.blue} sub={accountInfo ? `Margin ${accountInfo.marginPct}% / 30% Max` : "Binance Options"} />
+        <MetricCard label="Available Margin" value={accountInfo ? fmtUSD(accountInfo.availableBalance, 2) : "$0.00"} color={T.green} sub={accountInfo ? `Balance ${fmtUSD(accountInfo.balance, 2)}` : "พร้อมเทรด"} />
+        <MetricCard label="Unrealized P&L" value={`${totalPnl > 0 ? "+" : ""}${fmtUSD(totalPnl, 2)}`} color={pnlColor(totalPnl)} sub="รวมทุก position" />
+        <MetricCard label="Theta / Day" value={`+$${totalTheta < 1 ? totalTheta.toFixed(2) : totalTheta.toFixed(1)}`} color={T.green} sub="รายได้ต่อวัน" />
         <MetricCard label="Open Positions" value={positions.length} color={T.blue} sub={`${positions.filter(p => p.status === "healthy").length} healthy`} />
         <MetricCard label="Warnings" value={warnings} color={warnings > 0 ? T.amber : T.textMuted} sub={warnings > 0 ? "ต้องติดตาม" : "ทุก position ปกติ"} />
       </div>

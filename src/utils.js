@@ -1,9 +1,20 @@
 import { T } from "./tokens.js";
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
-export const fmt = (n, dec = 0) =>
-  n?.toLocaleString("en-US", { minimumFractionDigits: dec, maximumFractionDigits: dec }) ?? "-";
-export const fmtUSD = (n) => `$${fmt(n, 0)}`;
+export const fmt = (n, dec = 2) => {
+  if (n == null || isNaN(n)) return "-";
+  const num = Number(n);
+  return num.toLocaleString("en-US", { minimumFractionDigits: dec, maximumFractionDigits: dec });
+};
+
+export const fmtUSD = (n, dec = null) => {
+  if (n == null || isNaN(n)) return "$-";
+  const num = Number(n);
+  // Auto-detect decimals: >= 1000 with no cents -> 0 decimals, else 2 decimals for precision
+  const d = dec !== null ? dec : (Math.abs(num) >= 1000 && num % 1 === 0 ? 0 : 2);
+  const formatted = fmt(Math.abs(num), d);
+  return num < 0 ? `-$${formatted}` : `$${formatted}`;
+};
 
 // ─── Color helpers ────────────────────────────────────────────────────────────
 export const pnlColor = (v) => (v > 0 ? T.green : v < 0 ? T.red : T.textSecondary);

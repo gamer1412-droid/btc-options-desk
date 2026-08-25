@@ -31,8 +31,8 @@ export function mapBinancePosition(raw, mark = {}) {
   const entryPrice = Math.abs(Number(raw.entryPrice) || 0);
   const markPrice = Math.abs(Number(raw.markPrice) || Number(mark.markPrice) || entryPrice);
 
-  const premium = Math.round(entryPrice * qty) || 0;
-  const currentPrice = Math.round(markPrice * qty) || 0;
+  const premium = Math.round(entryPrice * qty * 100) / 100;
+  const currentPrice = Math.round(markPrice * qty * 100) / 100;
 
   // Greeks from mark endpoint (since /eapi/v1/position does not include Greeks)
   const delta = Number(raw.delta ?? mark.delta ?? 0);
@@ -41,6 +41,10 @@ export function mapBinancePosition(raw, mark = {}) {
   const markIVRaw = Number(raw.markIV ?? mark.markIV ?? 0);
   // markIV is a decimal fraction (0.65 = 65%)
   const iv = markIVRaw > 0 ? (markIVRaw <= 5 ? markIVRaw * 100 : markIVRaw) : 0;
+
+  const rawPnl = Number(raw.unrealizedPNL ?? raw.unrealizedPnL ?? raw.unrealizedPnl);
+  const calculatedPnl = side === "Short" ? (premium - currentPrice) : (currentPrice - premium);
+  const pnl = !isNaN(rawPnl) && rawPnl !== 0 ? Math.round(rawPnl * 100) / 100 : Math.round(calculatedPnl * 100) / 100;
 
   const pos = {
     id: raw.symbol,
@@ -52,9 +56,9 @@ export function mapBinancePosition(raw, mark = {}) {
     theta,
     vega,
     iv,
-    premium,       // Number USD
-    currentPrice,  // Number USD
-    pnl: Number(raw.unrealizedPNL) || (side === "Short" ? (premium - currentPrice) : (currentPrice - premium)),
+    premium,       // Number USD (2 decimal precision)
+    currentPrice,  // Number USD (2 decimal precision)
+    pnl,           // Real Unrealized P&L (supports positive and negative decimals)
     size: qty,
   };
 

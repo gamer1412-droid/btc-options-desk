@@ -10,6 +10,7 @@ export function PositionRow({ pos, onAnalyze }) {
   const [hovered, setHovered] = useState(false);
   const isCall = pos.type.includes("Call");
   const profit = pos.premium > 0 ? ((pos.premium - pos.currentPrice) / pos.premium) * 100 : 0;
+  const posThetaDollar = Math.abs(pos.theta) * (pos.size || 1);
 
   return (
     <div
@@ -34,7 +35,7 @@ export function PositionRow({ pos, onAnalyze }) {
     >
       <Pill color={isCall ? T.blue : T.amber}>{pos.type}</Pill>
       <span style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 13, fontWeight: 600 }}>
-        {fmtUSD(pos.strike)}
+        {fmtUSD(pos.strike, 0)}
       </span>
       <span style={{ color: T.textSecondary, fontFamily: T.font, fontSize: 12 }}>
         {pos.dte}d
@@ -43,20 +44,20 @@ export function PositionRow({ pos, onAnalyze }) {
         {pos.delta > 0 ? "+" : ""}{pos.delta.toFixed(2)}
       </span>
       <span style={{ color: T.green, fontFamily: T.font, fontSize: 12, fontWeight: 600 }}>
-        +{pos.theta.toFixed(1)}/d
+        +{posThetaDollar < 1 ? posThetaDollar.toFixed(2) : posThetaDollar.toFixed(1)}/d
       </span>
       <span style={{ color: T.textSecondary, fontFamily: T.font, fontSize: 12 }}>
         {pos.iv.toFixed(1)}%
       </span>
       <span style={{ color: T.textSecondary, fontFamily: T.font, fontSize: 12 }}>
-        {fmtUSD(pos.premium)}
+        {fmtUSD(pos.premium, 2)}
       </span>
       <div>
         <div style={{ color: pnlColor(pos.pnl), fontFamily: T.font, fontSize: 13, fontWeight: 700 }}>
-          {pos.pnl >= 0 ? "+" : ""}{fmtUSD(pos.pnl)}
+          {pos.pnl > 0 ? "+" : ""}{fmtUSD(pos.pnl, 2)}
         </div>
         <div style={{ fontSize: 10, color: profit >= 0 ? T.green : T.red, fontFamily: T.font, opacity: 0.85 }}>
-          {profit >= 0 ? "+" : ""}{profit.toFixed(0)}%
+          {profit > 0 ? "+" : ""}{profit.toFixed(1)}%
         </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
