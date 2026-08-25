@@ -1,5 +1,69 @@
 import { STRATEGY_CONFIG, RISK_PROFILES } from "../config/strategyConfig.js";
 
+// ─── Dynamic Market Regime & Optimal Profile Selector ─────────────────────────
+export function determineOptimalMarketProfile(marketContext = {}, accountInfo = null, currentPositions = []) {
+  const { distFromMA20 = 0, change24h = 0, ivRank = 45 } = marketContext;
+  const absDist = Math.abs(distFromMA20 ?? 0);
+  const absChange = Math.abs(change24h ?? 0);
+  const currentIVR = ivRank ?? 45;
+  const marginPct = accountInfo?.marginPct ?? 0;
+
+  let chosenKey = "BALANCED_ALPHA";
+  let rationale = "";
+  let tag = "⚡ BALANCED ALPHA";
+  let tagColor = "#00f0a8";
+
+  // 1. CONSERVATIVE TRIGGER: High Volatility, Extreme Distance, Bearish Dump, Extreme IV, or High Margin
+  if (absChange >= 4.0 || absDist >= 8.5 || (distFromMA20 != null && distFromMA20 < -6.0) || currentIVR >= 70 || marginPct >= 22) {
+    chosenKey = "CONSERVATIVE";
+    tag = "🛡️ CONSERVATIVE (DEFENSIVE)";
+    tagColor = "#38bdf8";
+    if (marginPct >= 22) {
+      rationale = `Margin ในพอร์ตค่อนข้างสูง (${marginPct}% / 30%) — ระบบเลือกแผน Conservative เพื่อจำกัดความเสี่ยง`;
+    } else if (distFromMA20 != null && distFromMA20 < -6.0) {
+      rationale = `BTC หลุดต่ำกว่าเส้น MA20 (${distFromMA20.toFixed(1)}%) — ระบบเลือกระยะปลอดภัยกว้างพิเศษ (Delta 0.15–0.18, DTE 18–25 วัน)`;
+    } else if (absChange >= 4.0 || absDist >= 8.5) {
+      rationale = `ความผันผวนของราคา 24h สูง (±${absChange.toFixed(1)}%) — ระบบเลือกแผน Conservative เพื่อ Safe Buffer สูงสุด`;
+    } else {
+      rationale = `IV Rank พุ่งสูงมาก (${currentIVR}%) สภาวะตลาดตึงเครียด — เลือกระยะปลอดภัยไกลพิเศษเพื่อป้องกัน Tail Risk`;
+    }
+  }
+  // 2. HIGH_YIELD TRIGGER: Stable Sideway / Low Volatility with Healthy IV & Low Margin
+  else if (absDist <= 4.0 && absChange <= 2.2 && currentIVR >= 32 && marginPct < 16) {
+    chosenKey = "HIGH_YIELD";
+    tag = "🔥 HIGH YIELD (ACCELERATED)";
+    tagColor = "#f59e0b";
+    rationale = `ตลาดอยู่ในกรอบ Sideway มั่นคง (±${absDist.toFixed(1)}% จาก MA20) + IV สมบูรณ์ (${currentIVR}%) — ระบบเลือกแผน High Yield เพื่อเร่ง Cash Flow และเร่งรอบหมุนเงินทุนสูงสุด (80–110% APY)`;
+  }
+  // 3. BALANCED ALPHA: Trending / Standard Healthy Alpha Regime (Sweet Spot)
+  else {
+    chosenKey = "BALANCED_ALPHA";
+    tag = "⚡ BALANCED ALPHA";
+    tagColor = "#00f0a8";
+    if (distFromMA20 != null && distFromMA20 > 4.0) {
+      rationale = `BTC มี Momentum ขาขึ้นแข็งแกร่ง (+${distFromMA20.toFixed(1)}% จาก MA20) — ระบบเลือกแผน Balanced Alpha เพื่อเก็บ Premium หนาพร้อมคุมความเสี่ยงปลอดภัย (50–65% APY)`;
+    } else {
+      rationale = `สภาวะตลาดสมดุลและมีความผันผวนปกติ (IVR ${currentIVR}%) — ระบบเลือกแผน Balanced Alpha ซึ่งเป็น Golden Sweet Spot ที่ดีที่สุด`;
+    }
+  }
+
+  const profile = RISK_PROFILES[chosenKey] || RISK_PROFILES.BALANCED_ALPHA;
+
+  return {
+    key: chosenKey,
+    profile,
+    tag,
+    tagColor,
+    rationale,
+    metrics: {
+      distFromMA20,
+      change24h,
+      ivRank: currentIVR,
+      marginPct,
+    },
+  };
+}
+
 // ─── Entry Signal Scanner v2.5 (Yield Boost & Adaptive Multi-Strategy) ─────────
 export function scanEntryOpportunities(
   marksData,
@@ -7,13 +71,21 @@ export function scanEntryOpportunities(
   ivRank = null,
   currentPositions = [],
   marketContext = {},
-  selectedProfileKey = "BALANCED_ALPHA"
+  selectedProfileKey = null
 ) {
   if (!Array.isArray(marksData) || marksData.length === 0 || !btcPrice) {
     return [];
   }
 
-  const profile = RISK_PROFILES[selectedProfileKey] || RISK_PROFILES.BALANCED_ALPHA;
+  // If no profile key is provided or passed dynamically, auto-determine the best profile
+  let activeProfileKey = selectedProfileKey;
+  if (!activeProfileKey || !RISK_PROFILES[activeProfileKey]) {
+    const autoSelection = determineOptimalMarketProfile(marketContext, null, currentPositions);
+    activeProfileKey = autoSelection.key;
+  }
+
+  const profile = RISK_PROFILES[activeProfileKey] || RISK_PROFILES.BALANCED_ALPHA;
+
   const cfg = STRATEGY_CONFIG;
   const now = Date.now();
   const parsedContracts = [];

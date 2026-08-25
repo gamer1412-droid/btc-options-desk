@@ -8,6 +8,7 @@ import { evaluateEntryRules } from "../services/rulesEngine.js";
 import { openPaperTrade } from "../services/paperTrading.js";
 import { SoundFX } from "../services/soundFx.js";
 import { RISK_PROFILES } from "../config/strategyConfig.js";
+import { determineOptimalMarketProfile } from "../services/scanner.js";
 
 export function ScannerTab({
   opportunities = [],
@@ -16,8 +17,7 @@ export function ScannerTab({
   marketContext = {},
   accountInfo,
   currentPositions = [],
-  selectedProfile = "BALANCED_ALPHA",
-  onSelectProfile,
+  optimalProfile = null,
   onAnalyzeStrangle,
   onOpenPayoff,
   onOpenPaperTrade,
@@ -28,6 +28,12 @@ export function ScannerTab({
   const [strategyFilter, setStrategyFilter] = useState("AUTO");
   const [simulatedFeedback, setSimulatedFeedback] = useState(null);
 
+  // Compute or fallback to optimal profile analysis
+  const currentOptimal = useMemo(() => {
+    return optimalProfile || determineOptimalMarketProfile(marketContext, accountInfo, currentPositions);
+  }, [optimalProfile, marketContext, accountInfo, currentPositions]);
+
+  const activeProfile = currentOptimal.profile || RISK_PROFILES.BALANCED_ALPHA;
   const isBullishRegime = marketContext.distFromMA20 != null && marketContext.distFromMA20 > 7.0;
   const isBearishRegime = marketContext.distFromMA20 != null && marketContext.distFromMA20 < -7.0;
 
@@ -82,73 +88,96 @@ export function ScannerTab({
   return (
     <div style={{ padding: "0 24px 32px", display: "flex", flexDirection: "column", gap: 20 }}>
 
-      {/* ── Yield & Risk Profile Selector (Preset Switcher) ───────────────── */}
+      {/* ── AI Auto-Selected Market Regime & Optimal Strategy Card ───────────────── */}
       <div style={{
         background: `linear-gradient(135deg, ${T.bg2}, ${T.bg1})`,
-        border: `1px solid ${T.borderHover}`,
+        border: `1px solid ${currentOptimal.tagColor}55`,
+        borderLeft: `4px solid ${currentOptimal.tagColor}`,
         borderRadius: 14,
-        padding: "16px 20px",
-        boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
+        padding: "18px 22px",
+        boxShadow: `0 4px 25px rgba(0,0,0,0.35), 0 0 20px ${currentOptimal.tagColor}15`,
+        position: "relative",
+        overflow: "hidden",
       }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 16 }}>🚀</span>
-            <span style={{ color: T.textPrimary, fontFamily: T.fontSans, fontWeight: 800, fontSize: 13, letterSpacing: 1 }}>
-              YIELD TARGET & RISK PROFILE (เลือกระดับผลตอบแทนที่ต้องการ)
-            </span>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <span style={{ fontSize: 18 }}>🧠</span>
+              <span style={{ color: T.textPrimary, fontFamily: T.fontSans, fontWeight: 900, fontSize: 13, letterSpacing: 1.5 }}>
+                AI MARKET REGIME ENGINE — กลยุทธ์ที่ระบบเลือกให้อัตโนมัติ
+              </span>
+              <span style={{
+                background: `${currentOptimal.tagColor}22`,
+                color: currentOptimal.tagColor,
+                border: `1px solid ${currentOptimal.tagColor}60`,
+                borderRadius: 6,
+                padding: "2px 8px",
+                fontSize: 10,
+                fontWeight: 900,
+                fontFamily: T.font,
+                letterSpacing: 1,
+              }}>
+                {currentOptimal.tag} (AUTO-OPTIMIZED)
+              </span>
+            </div>
+
+            <div style={{ color: T.textSecondary, fontSize: 13, fontFamily: T.fontSans, lineHeight: 1.6, maxWidth: 780, marginTop: 4 }}>
+              {currentOptimal.rationale}
+            </div>
           </div>
-          <span style={{ color: T.textSecondary, fontSize: 11, fontFamily: T.fontSans }}>
-            ผลตอบแทนคาดการณ์: <strong style={{ color: T.green }}>{RISK_PROFILES[selectedProfile]?.desc.split(",")[0]}</strong>
-          </span>
+
+          <div style={{
+            background: T.bg1,
+            border: `1px solid ${T.border}`,
+            borderRadius: 10,
+            padding: "10px 16px",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-end",
+          }}>
+            <div style={{ color: T.textSecondary, fontSize: 10, letterSpacing: 1, fontFamily: T.fontSans }}>ESTIMATED TARGET YIELD</div>
+            <div style={{ color: currentOptimal.tagColor, fontFamily: T.font, fontSize: 18, fontWeight: 900, marginTop: 2 }}>
+              {activeProfile.desc.split(",")[0] || "50–65% APY"}
+            </div>
+          </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10 }}>
-          {Object.values(RISK_PROFILES).map((prof) => {
-            const isSelected = selectedProfile === prof.key;
-            return (
-              <div
-                key={prof.key}
-                onClick={() => {
-                  SoundFX.playClick();
-                  onSelectProfile?.(prof.key);
-                }}
-                style={{
-                  background: isSelected
-                    ? `linear-gradient(180deg, ${T.bg3}, ${T.bg2})`
-                    : T.bg1,
-                  border: `1px solid ${isSelected ? (prof.key === "HIGH_YIELD" ? T.amber : T.green) : T.border}`,
-                  borderTop: isSelected ? `3px solid ${prof.key === "HIGH_YIELD" ? T.amber : T.green}` : `1px solid ${T.border}`,
-                  borderRadius: 10,
-                  padding: "12px 14px",
-                  cursor: "pointer",
-                  boxShadow: isSelected ? `0 4px 18px rgba(0,0,0,0.3), 0 0 15px ${(prof.key === "HIGH_YIELD" ? T.amber : T.green)}20` : "none",
-                  transition: "all 0.2s ease",
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <strong style={{
-                    color: isSelected ? (prof.key === "HIGH_YIELD" ? T.amber : T.green) : T.textPrimary,
-                    fontSize: 12, fontFamily: T.fontSans, fontWeight: 800,
-                  }}>
-                    {prof.label}
-                  </strong>
-                  {isSelected && (
-                    <span style={{
-                      background: prof.key === "HIGH_YIELD" ? T.amberDim : T.greenDim,
-                      color: prof.key === "HIGH_YIELD" ? T.amber : T.green,
-                      border: `1px solid ${prof.key === "HIGH_YIELD" ? T.amber : T.green}40`,
-                      borderRadius: 4, padding: "1px 5px", fontSize: 9, fontWeight: 800, fontFamily: T.font,
-                    }}>
-                      ACTIVE
-                    </span>
-                  )}
-                </div>
-                <div style={{ color: T.textSecondary, fontSize: 11, marginTop: 4, fontFamily: T.fontSans, lineHeight: 1.4 }}>
-                  {prof.desc}
-                </div>
-              </div>
-            );
-          })}
+        {/* Real-Time Market Conditions Breakdown Grid */}
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+          gap: 10,
+          marginTop: 14,
+          paddingTop: 12,
+          borderTop: `1px solid ${T.border}`,
+        }}>
+          <div style={{ background: T.bg0, padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.border}` }}>
+            <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>MARKET TREND (VS MA20)</div>
+            <div style={{ color: (marketContext.distFromMA20 ?? 0) >= 0 ? T.green : T.red, fontFamily: T.font, fontSize: 13, fontWeight: 700, marginTop: 2 }}>
+              {(marketContext.distFromMA20 ?? 0) >= 0 ? "+" : ""}{(marketContext.distFromMA20 ?? 0).toFixed(1)}% {isBullishRegime ? "🔥 Bullish" : isBearishRegime ? "⚠️ Bearish" : "⚖️ Sideway"}
+            </div>
+          </div>
+
+          <div style={{ background: T.bg0, padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.border}` }}>
+            <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>MARKET IV RANK</div>
+            <div style={{ color: (ivRank || marketContext.ivRank) >= 40 ? T.purple : T.blue, fontFamily: T.font, fontSize: 13, fontWeight: 700, marginTop: 2 }}>
+              {ivRank || marketContext.ivRank || 45}% {(ivRank || marketContext.ivRank) >= 40 ? "💎 Premium สูง" : "Normal Volatility"}
+            </div>
+          </div>
+
+          <div style={{ background: T.bg0, padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.border}` }}>
+            <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>TARGET DELTA / DTE</div>
+            <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 13, fontWeight: 700, marginTop: 2 }}>
+              Delta {activeProfile.deltaMin}–{activeProfile.deltaMax} | DTE {activeProfile.dtePreferredMin}–{activeProfile.dtePreferredMax}d
+            </div>
+          </div>
+
+          <div style={{ background: T.bg0, padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.border}` }}>
+            <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>DYNAMIC TP TARGET</div>
+            <div style={{ color: T.green, fontFamily: T.font, fontSize: 13, fontWeight: 700, marginTop: 2 }}>
+              {activeProfile.takeProfitPct}% Profit (Auto Rotate)
+            </div>
+          </div>
         </div>
       </div>
 
@@ -286,7 +315,7 @@ export function ScannerTab({
 
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           {isBullishRegime && <Pill color={T.green}>⭐ TARGET LOCKED</Pill>}
-          <Pill color={T.amber}>DTE {RISK_PROFILES[selectedProfile]?.dtePreferredMin}–{RISK_PROFILES[selectedProfile]?.dtePreferredMax}d</Pill>
+          <Pill color={T.amber}>DTE {activeProfile.dtePreferredMin}–{activeProfile.dtePreferredMax}d</Pill>
           <Pill color={T.purple}>IVR ≥ 28%</Pill>
           <button
             onClick={() => {

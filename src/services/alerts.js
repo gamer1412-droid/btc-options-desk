@@ -1,6 +1,46 @@
 import { STRATEGY_CONFIG } from "../config/strategyConfig.js";
 import { evaluateEntryRules } from "./rulesEngine.js";
 
+const ALERT_STORAGE_KEY = "btc_options_desk_alerted_positions_v1";
+const ENTRY_STORAGE_KEY = "btc_options_desk_alerted_entries_v1";
+const ALERT_COOLDOWN_MS = 12 * 60 * 60 * 1000; // 12 hours cooldown per alert state
+
+// ─── LocalStorage Persistent Alert History Helpers ───────────────────────────
+export function getPersistedAlerts(key = ALERT_STORAGE_KEY) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return new Set();
+    const data = JSON.parse(raw);
+    const now = Date.now();
+    const validIds = new Set();
+    const cleaned = {};
+
+    for (const [id, timestamp] of Object.entries(data)) {
+      if (now - Number(timestamp) < ALERT_COOLDOWN_MS) {
+        validIds.add(id);
+        cleaned[id] = timestamp;
+      }
+    }
+    localStorage.setItem(key, JSON.stringify(cleaned));
+    return validIds;
+  } catch {
+    return new Set();
+  }
+}
+
+export function savePersistedAlert(id, key = ALERT_STORAGE_KEY) {
+  try {
+    const raw = localStorage.getItem(key);
+    const data = raw ? JSON.parse(raw) : {};
+    data[id] = Date.now();
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch {
+    // ignore
+  }
+}
+
+export { ALERT_STORAGE_KEY, ENTRY_STORAGE_KEY };
+
 // ─── Telegram sender ──────────────────────────────────────────────────────────
 export async function sendTelegram(type, data = {}) {
   try {

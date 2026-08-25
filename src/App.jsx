@@ -2,8 +2,16 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { T } from "./tokens.js";
 import { fmtUSD, pnlColor } from "./utils.js";
 import { mapBinancePosition } from "./services/binance.js";
-import { sendTelegram, checkAlerts, checkEntryAlerts } from "./services/alerts.js";
-import { scanEntryOpportunities } from "./services/scanner.js";
+import {
+  sendTelegram,
+  checkAlerts,
+  checkEntryAlerts,
+  getPersistedAlerts,
+  savePersistedAlert,
+  ALERT_STORAGE_KEY,
+  ENTRY_STORAGE_KEY,
+} from "./services/alerts.js";
+import { scanEntryOpportunities, determineOptimalMarketProfile } from "./services/scanner.js";
 import { parseAccountInfo, calculatePortfolioCapacity } from "./services/sizing.js";
 import { loadPaperTrades } from "./services/paperTrading.js";
 import { SoundFX } from "./services/soundFx.js";
@@ -41,10 +49,10 @@ export default function App() {
   const [payoffSetup, setPayoffSetup]           = useState(null);
   const [paperModalOpen, setPaperModalOpen]     = useState(false);
   const [paperCount, setPaperCount]             = useState(0);
-  const [selectedProfile, setSelectedProfile]   = useState("BALANCED_ALPHA");
+  const [optimalProfile, setOptimalProfile]     = useState(null);
 
-  const alertedIdsRef = useRef(new Set());
-  const alertedEntryIdsRef = useRef(new Set());
+  const alertedIdsRef = useRef(getPersistedAlerts(ALERT_STORAGE_KEY));
+  const alertedEntryIdsRef = useRef(getPersistedAlerts(ENTRY_STORAGE_KEY));
 
   // Refresh active paper trades count
   const refreshPaperCount = useCallback(() => {
@@ -126,6 +134,7 @@ export default function App() {
           }
           for (const { pos, reason } of triggered) {
             alertedIdsRef.current.add(pos.id);
+            savePersistedAlert(pos.id, ALERT_STORAGE_KEY);
             const pct = pos.premium > 0
               ? ((pos.premium - pos.currentPrice) / pos.premium) * 100 : 0;
             sendTelegram("warning", {
@@ -143,6 +152,10 @@ export default function App() {
         setConnError(typeof posData.error === "string" ? posData.error : JSON.stringify(posData.error));
       }
 
+      // ── Determine Optimal Risk & Yield Profile from Market Regime ────────
+      const autoProfile = determineOptimalMarketProfile(updatedMarketContext, parsedAccount, mappedPositions);
+      setOptimalProfile(autoProfile);
+
       // ── Scan Entry Opportunities (Adaptive Multi-Strategy with Yield Profile) ─
       if (Array.isArray(marksData) && currentBtcPrice) {
         const opps = scanEntryOpportunities(
@@ -151,7 +164,7 @@ export default function App() {
           currentIvRank,
           mappedPositions,
           updatedMarketContext,
-          selectedProfile
+          autoProfile.key
         );
         setOpportunities(opps);
 
@@ -161,6 +174,8 @@ export default function App() {
             SoundFX.playSuccessChime();
           }
           for (const signal of newEntrySignals) {
+            alertedEntryIdsRef.current.add(signal.id);
+            savePersistedAlert(signal.id, ENTRY_STORAGE_KEY);
             const signalType = signal.strategy === "SHORT_PUT"
               ? "short_put_signal"
               : signal.strategy === "SKEWED_STRANGLE"
@@ -177,7 +192,7 @@ export default function App() {
     } finally {
       setLoadingPositions(false);
     }
-  }, [alertsEnabled, selectedProfile]);
+  }, [alertsEnabled]);
 
   useEffect(() => {
     fetchLiveData();
@@ -465,8 +480,7 @@ export default function App() {
             marketContext={marketContext}
             accountInfo={accountInfo}
             currentPositions={positions}
-            selectedProfile={selectedProfile}
-            onSelectProfile={(profKey) => setSelectedProfile(profKey)}
+            optimalProfile={optimalProfile}
             onAnalyzeStrangle={setAnalyzing}
             onOpenPayoff={(setup) => setPayoffSetup(setup)}
             onOpenPaperTrade={() => refreshPaperCount()}
