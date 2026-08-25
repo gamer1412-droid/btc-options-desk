@@ -316,7 +316,6 @@ export default function App() {
             accountInfo={accountInfo}
             currentPositions={positions}
             onAnalyzeStrangle={setAnalyzing}
-            onOrderPlaced={fetchLiveData}
           />
         </div>
       )}
@@ -338,19 +337,14 @@ export default function App() {
                   gap: 0, padding: "8px 16px", background: T.bg1,
                   borderBottom: `1px solid ${T.border}`, minWidth: 690,
                 }}>
-                  {["TYPE", "STRIKE", "DTE", "DELTA", "THETA", "IV", "RECEIVED", "P&L", "STATUS", "ACTIONS"].map(h => (
+                  {["TYPE", "STRIKE", "DTE", "DELTA", "THETA", "IV", "RECEIVED", "P&L", "STATUS", ""].map(h => (
                     <span key={h} style={{ color: T.textMuted, fontSize: 9, letterSpacing: 2, fontFamily: T.font }}>{h}</span>
                   ))}
                 </div>
                 {/* Position rows */}
                 <div style={{ minWidth: 690 }}>
                   {positions.map(pos => (
-                    <PositionRow
-                      key={pos.id}
-                      pos={pos}
-                      onAnalyze={setAnalyzing}
-                      onPositionClosed={fetchLiveData}
-                    />
+                    <PositionRow key={pos.id} pos={pos} onAnalyze={setAnalyzing} />
                   ))}
                 </div>
               </div>

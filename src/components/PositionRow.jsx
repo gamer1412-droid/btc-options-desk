@@ -2,33 +2,15 @@ import { useState } from "react";
 import { T } from "../tokens.js";
 import { fmtUSD, pnlColor, deltaColor, statusColor } from "../utils.js";
 import { Pill } from "./Pill.jsx";
-import { closeOptionPosition } from "../services/trade.js";
 
 // Grid column definition — shared between header and rows
-export const POSITION_GRID_COLS = "85px 85px 50px 65px 65px 60px 75px 85px 85px 130px";
+export const POSITION_GRID_COLS = "85px 90px 50px 65px 65px 60px 75px 85px 85px 65px";
 
-export function PositionRow({ pos, onAnalyze, onPositionClosed }) {
+export function PositionRow({ pos, onAnalyze }) {
   const [hovered, setHovered] = useState(false);
-  const [closing, setClosing] = useState(false);
   const isCall = pos.type.includes("Call");
   const profit = pos.premium > 0 ? ((pos.premium - pos.currentPrice) / pos.premium) * 100 : 0;
   const posThetaDollar = Math.abs(pos.theta) * (pos.size || 1);
-
-  const handleClose = async () => {
-    if (!window.confirm(`ยืนยันการส่งคำสั่งปิดสัญญา ${pos.id} (${pos.size} BTC) ที่ราคาตลาด/Limit หรือไม่?`)) {
-      return;
-    }
-    setClosing(true);
-    try {
-      await closeOptionPosition(pos);
-      alert(`✅ ส่งคำสั่งปิดสัญญา ${pos.id} สำเร็จ!`);
-      if (onPositionClosed) onPositionClosed();
-    } catch (err) {
-      alert(`❌ ปิดสัญญาไม่สำเร็จ: ${err.message}`);
-    } finally {
-      setClosing(false);
-    }
-  };
 
   return (
     <div
@@ -93,8 +75,8 @@ export function PositionRow({ pos, onAnalyze, onPositionClosed }) {
         </span>
       </div>
 
-      {/* Action Buttons: AI + 1-Click Close */}
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 6 }}>
+      {/* Compact, elegant AI button */}
+      <div style={{ textAlign: "right" }}>
         <button
           id={`analyze-btn-${pos.id}`}
           onClick={() => onAnalyze(pos)}
@@ -104,7 +86,7 @@ export function PositionRow({ pos, onAnalyze, onPositionClosed }) {
             border: `1px solid ${T.greenMid}`,
             color: T.green,
             borderRadius: 5,
-            padding: "4px 7px",
+            padding: "4px 8px",
             cursor: "pointer",
             fontFamily: T.fontSans,
             fontSize: 11,
@@ -112,8 +94,9 @@ export function PositionRow({ pos, onAnalyze, onPositionClosed }) {
             letterSpacing: 0.5,
             display: "inline-flex",
             alignItems: "center",
-            gap: 3,
+            gap: 4,
             transition: "all 0.2s ease",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
           }}
           onMouseEnter={(e) => {
             e.currentTarget.style.background = T.green;
@@ -126,33 +109,6 @@ export function PositionRow({ pos, onAnalyze, onPositionClosed }) {
         >
           <span>🧠</span>
           <span>AI</span>
-        </button>
-
-        <button
-          id={`close-btn-${pos.id}`}
-          onClick={handleClose}
-          disabled={closing}
-          title="ส่งคำสั่งซื้อปิดสัญญานี้ทันที (1-Click Close)"
-          style={{
-            background: profit >= 50 ? T.greenDim : T.redDim,
-            border: `1px solid ${profit >= 50 ? T.greenMid : T.red + "44"}`,
-            color: profit >= 50 ? T.green : T.red,
-            borderRadius: 5,
-            padding: "4px 8px",
-            cursor: closing ? "not-allowed" : "pointer",
-            fontFamily: T.fontSans,
-            fontSize: 11,
-            fontWeight: 700,
-            letterSpacing: 0.5,
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 3,
-            opacity: closing ? 0.6 : 1,
-            transition: "all 0.2s ease",
-          }}
-        >
-          <span>{profit >= 50 ? "🎯" : "🔴"}</span>
-          <span>{closing ? "..." : profit >= 50 ? "TP" : "CLOSE"}</span>
         </button>
       </div>
     </div>

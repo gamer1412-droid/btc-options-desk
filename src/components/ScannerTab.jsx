@@ -5,11 +5,9 @@ import { Pill } from "./Pill.jsx";
 import { sendTelegram } from "../services/alerts.js";
 import { calculatePositionSize } from "../services/sizing.js";
 import { evaluateEntryRules } from "../services/rulesEngine.js";
-import { placeStrangleOrders } from "../services/trade.js";
 
-export function ScannerTab({ opportunities = [], btcPrice, ivRank, marketContext = {}, accountInfo, currentPositions = [], onAnalyzeStrangle, onOrderPlaced }) {
+export function ScannerTab({ opportunities = [], btcPrice, ivRank, marketContext = {}, accountInfo, currentPositions = [], onAnalyzeStrangle }) {
   const [sentMap, setSentMap] = useState({});
-  const [tradeStatus, setTradeStatus] = useState({}); // { [oppId]: "ordering" | "done" | "error" }
   const [selectedSize, setSelectedSize] = useState({}); // opp.id -> selected lot size
   const [expandedChecklist, setExpandedChecklist] = useState({}); // opp.id -> boolean
   const [strategyFilter, setStrategyFilter] = useState("AUTO"); // "AUTO" | "SHORT_PUT" | "SKEWED_STRANGLE" | "STRANGLE" | "ALL"
@@ -33,34 +31,6 @@ export function ScannerTab({ opportunities = [], btcPrice, ivRank, marketContext
       }, 4000);
     } catch (e) {
       setSentMap(prev => ({ ...prev, [opp.id]: "error" }));
-    }
-  };
-
-  const handle1ClickTrade = async (opp, chosenSize) => {
-    const isShortPut = opp.strategy === "SHORT_PUT";
-    const lotSize = chosenSize || 0.01;
-    const desc = isShortPut
-      ? `Short Put Strike $${Number(opp.put.strike).toLocaleString()} (${lotSize} BTC @ ~$${opp.put.markPrice})`
-      : `Strangle Put $${Number(opp.put.strike).toLocaleString()} + Call $${Number(opp.call.strike).toLocaleString()} (${lotSize} BTC)`;
-
-    const marginEst = Math.round(opp.btcPrice * 0.15 * lotSize);
-
-    if (!window.confirm(`⚡ ยืนยันการส่งคำสั่ง Limit Order ไปยัง Binance Options หรือไม่?\n\n• กลยุทธ์: ${opp.strategyName || opp.strategy}\n• สัญญา: ${desc}\n• วันหมดอายุ: ${opp.expiry}\n• ใช้ Margin ประมาณ: $${marginEst}\n\n(คำสั่งจะถูกส่งเป็น Limit Order ที่ราคา Mark Price เพื่อหลีกเลี่ยง Slippage)`)) {
-      return;
-    }
-
-    setTradeStatus(prev => ({ ...prev, [opp.id]: "ordering" }));
-    try {
-      await placeStrangleOrders(opp, lotSize);
-      setTradeStatus(prev => ({ ...prev, [opp.id]: "done" }));
-      alert(`✅ ส่งคำสั่งสำเร็จ!\n\nOrder ถูกส่งเข้า Binance Options เรียบร้อยแล้วครับ`);
-      if (onOrderPlaced) onOrderPlaced();
-      setTimeout(() => {
-        setTradeStatus(prev => ({ ...prev, [opp.id]: null }));
-      }, 5000);
-    } catch (err) {
-      setTradeStatus(prev => ({ ...prev, [opp.id]: "error" }));
-      alert(`❌ ส่งคำสั่งไม่สำเร็จ: ${err.message}\n\n(โปรดตรวจสอบว่าเปิดสิทธิ์ "Enable Options Trading" บน Binance API Key แล้ว)`);
     }
   };
 
@@ -628,62 +598,25 @@ export function ScannerTab({ opportunities = [], btcPrice, ivRank, marketContext
                 )}
 
                 {/* Action Buttons */}
-                <div style={{ display: "flex", gap: 10, marginTop: "auto", flexWrap: "wrap" }}>
-                  {/* 1-Click Open Order Button */}
-                  <button
-                    id={`open-btn-${opp.id}`}
-                    onClick={() => handle1ClickTrade(opp, chosenSize)}
-                    disabled={tradeStatus[opp.id] === "ordering" || evaluation.isBlocked}
-                    title={evaluation.isBlocked ? "ไม่สามารถเปิดได้เนื่องจากไม่ผ่านเกณฑ์ความปลอดภัย" : "ส่งคำสั่ง Limit Order ไปยัง Binance Options ทันที (1-Click)"}
-                    style={{
-                      flex: 1.2,
-                      minWidth: 150,
-                      background: tradeStatus[opp.id] === "done"
-                        ? T.green
-                        : evaluation.isBlocked
-                        ? T.bg3
-                        : `linear-gradient(135deg, ${T.green}, #059669)`,
-                      border: `1px solid ${tradeStatus[opp.id] === "done" ? T.green : evaluation.isBlocked ? T.border : T.greenMid}`,
-                      color: evaluation.isBlocked ? T.textMuted : T.bg0,
-                      borderRadius: 8,
-                      padding: "10px 14px",
-                      cursor: evaluation.isBlocked || tradeStatus[opp.id] === "ordering" ? "not-allowed" : "pointer",
-                      fontFamily: T.fontSans,
-                      fontSize: 12,
-                      fontWeight: 800,
-                      letterSpacing: 0.5,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 6,
-                      opacity: evaluation.isBlocked ? 0.4 : tradeStatus[opp.id] === "ordering" ? 0.7 : 1,
-                      boxShadow: evaluation.isBlocked ? "none" : `0 2px 10px ${T.green}33`,
-                      transition: "all 0.2s ease",
-                    }}
-                  >
-                    <span>{tradeStatus[opp.id] === "done" ? "✓" : "⚡"}</span>
-                    <span>{tradeStatus[opp.id] === "ordering" ? "ORDERING..." : tradeStatus[opp.id] === "done" ? "ORDER SENT!" : `1-CLICK OPEN (${chosenSize} BTC)`}</span>
-                  </button>
-
+                <div style={{ display: "flex", gap: 10, marginTop: "auto" }}>
                   <button
                     onClick={() => onAnalyzeStrangle(opp)}
                     style={{
                       flex: 1,
-                      minWidth: 110,
                       background: T.greenDim,
                       border: `1px solid ${T.greenMid}`,
                       color: T.green,
                       borderRadius: 8,
-                      padding: "10px 12px",
+                      padding: "10px 14px",
                       cursor: "pointer",
                       fontFamily: T.fontSans,
-                      fontSize: 11,
+                      fontSize: 12,
                       fontWeight: 700,
                       letterSpacing: 0.5,
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      gap: 5,
+                      gap: 6,
                       transition: "all 0.2s ease",
                     }}
                     onMouseEnter={(e) => {
@@ -696,7 +629,7 @@ export function ScannerTab({ opportunities = [], btcPrice, ivRank, marketContext
                     }}
                   >
                     <span>🧠</span>
-                    <span>AI ANALYZE</span>
+                    <span>AI ANALYZE SETUP</span>
                   </button>
 
                   <button
@@ -707,21 +640,21 @@ export function ScannerTab({ opportunities = [], btcPrice, ivRank, marketContext
                       border: `1px solid ${isSent ? T.green : T.border}`,
                       color: isSent ? T.bg0 : evaluation.isBlocked ? T.textMuted : T.textPrimary,
                       borderRadius: 8,
-                      padding: "10px 14px",
+                      padding: "10px 16px",
                       cursor: evaluation.isBlocked ? "not-allowed" : "pointer",
                       fontFamily: T.fontSans,
-                      fontSize: 11,
+                      fontSize: 12,
                       fontWeight: 700,
                       letterSpacing: 0.5,
                       display: "flex",
                       alignItems: "center",
-                      gap: 5,
+                      gap: 6,
                       opacity: evaluation.isBlocked ? 0.5 : 1,
                       transition: "all 0.2s ease",
                     }}
                   >
                     <span>📨</span>
-                    <span>{isSending ? "..." : isSent ? "✓" : "ALERT"}</span>
+                    <span>{isSending ? "SENDING..." : isSent ? "✓ SENT" : "TELEGRAM ALERT"}</span>
                   </button>
                 </div>
               </div>
