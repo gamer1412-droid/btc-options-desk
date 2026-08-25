@@ -43,13 +43,47 @@ async function signedGet(base, path, params, apiKey, apiSecret) {
   return res.json();
 }
 
+async function signedPost(base, path, params, apiKey, apiSecret) {
+  const timestamp = Date.now();
+  const query = new URLSearchParams({ ...params, timestamp, recvWindow: 60000 }).toString();
+  const signature = sign(query, apiSecret);
+  const url = `${base}${path}?${query}&signature=${signature}`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "X-MBX-APIKEY": apiKey },
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Binance API error ${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
+async function signedDelete(base, path, params, apiKey, apiSecret) {
+  const timestamp = Date.now();
+  const query = new URLSearchParams({ ...params, timestamp, recvWindow: 60000 }).toString();
+  const signature = sign(query, apiSecret);
+  const url = `${base}${path}?${query}&signature=${signature}`;
+
+  const res = await fetch(url, {
+    method: "DELETE",
+    headers: { "X-MBX-APIKEY": apiKey },
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Binance API error ${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
 export default async function handler(req, res) {
   // CORS — restrict to your deployed frontend origin.
   // Set ALLOWED_ORIGIN in Vercel Environment Variables (e.g. https://btc-options-desk.vercel.app)
   // Falls back to * during local dev when env var is absent.
   const allowedOrigin = process.env.ALLOWED_ORIGIN ?? "*";
   res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
-  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(200).end();
 
@@ -134,6 +168,76 @@ export default async function handler(req, res) {
         // GET /eapi/v1/historyOrders — recent order history for trade log
         const data = await signedGet(BINANCE_OPTIONS_BASE, "/eapi/v1/historyOrders", { limit: 50 }, apiKey, apiSecret);
         return res.status(200).json(data);
+      }
+
+      case "placeOrder": {
+        if (req.method !== "POST") return res.status(405).json({ error: "Use POST for placeOrder" });
+        if (!apiKey || !apiSecret) {
+          return res.status(500).json({ error: "Missing BINANCE_API_KEY / BINANCE_API_SECRET env vars" });
+        }
+
+        const { symbol, side, type = "LIMIT", quantity, price, timeInForce = "GTC" } = req.body || {};
+        if (!symbol || !side || !quantity || !price) {
+          return res.status(400).json({ error: "Missing required order parameters: symbol, side, quantity, price" });
+        }
+
+        // Hard safety limits: max 0.05 BTC per execution
+        const parsedQty = Math.min(Math.abs(Number(quantity)), 0.05);
+        const parsedPrice = Math.round(Math.abs(Number(price)) * 10) / 10;
+
+        const orderParams = {
+          symbol,
+          side: side.toUpperCase(),
+          type: type.toUpperCase(),
+          quantity: parsedQty.toString(),
+          price: parsedPrice.toString(),
+          timeInForce,
+        };
+
+        const result = await signedPost(BINANCE_OPTIONS_BASE, "/eapi/v1/order", orderParams, apiKey, apiSecret);
+        return res.status(200).json({ ok: true, result });
+      }
+
+      case "closePosition": {
+        if (req.method !== "POST") return res.status(405).json({ error: "Use POST for closePosition" });
+        if (!apiKey || !apiSecret) {
+          return res.status(500).json({ error: "Missing BINANCE_API_KEY / BINANCE_API_SECRET env vars" });
+        }
+
+        const { symbol, side, quantity, price } = req.body || {};
+        if (!symbol || !side || !quantity) {
+          return res.status(400).json({ error: "Missing required close parameters: symbol, side, quantity" });
+        }
+
+        const parsedQty = Math.min(Math.abs(Number(quantity)), 0.05);
+        const parsedPrice = price ? Math.round(Math.abs(Number(price)) * 10) / 10 : 0.1;
+
+        const orderParams = {
+          symbol,
+          side: side.toUpperCase(),
+          type: "LIMIT",
+          quantity: parsedQty.toString(),
+          price: parsedPrice.toString(),
+          timeInForce: "GTC",
+        };
+
+        const result = await signedPost(BINANCE_OPTIONS_BASE, "/eapi/v1/order", orderParams, apiKey, apiSecret);
+        return res.status(200).json({ ok: true, result });
+      }
+
+      case "cancelOrder": {
+        if (req.method !== "DELETE" && req.method !== "POST") return res.status(405).json({ error: "Use DELETE for cancelOrder" });
+        if (!apiKey || !apiSecret) {
+          return res.status(500).json({ error: "Missing BINANCE_API_KEY / BINANCE_API_SECRET env vars" });
+        }
+
+        const { symbol, orderId } = req.query || req.body || {};
+        if (!symbol || !orderId) {
+          return res.status(400).json({ error: "Missing required cancel parameters: symbol, orderId" });
+        }
+
+        const result = await signedDelete(BINANCE_OPTIONS_BASE, "/eapi/v1/order", { symbol, orderId }, apiKey, apiSecret);
+        return res.status(200).json({ ok: true, result });
       }
 
       default:

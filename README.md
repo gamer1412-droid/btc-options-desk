@@ -40,15 +40,16 @@ Vercel Serverless Functions (โฟลเดอร์ `api/`) ทำหน้า
 
 ## ขั้นตอน Deploy
 
-### 1. เตรียม Binance API Key (Read-Only)
+### 1. เตรียม Binance API Key
 
 1. ไปที่ [Binance API Management](https://www.binance.com/en/my/settings/api-management)
-2. สร้าง API Key ใหม่
-3. **สำคัญมาก**: เปิดใช้งานเฉพาะ "Enable Reading" เท่านั้น
-   - ❌ ห้ามเปิด "Enable Spot & Margin Trading"
-   - ❌ ห้ามเปิด "Enable Withdrawals"
-4. ถ้าเทรด Options อยู่ ตรวจสอบว่า Key นี้เข้าถึง Options account ได้ (Enable Reading ครอบคลุมอยู่แล้ว)
-5. จำกัด IP access ถ้าทำได้ (เพิ่มความปลอดภัย แต่ Vercel ใช้ dynamic IP จึงมักต้องเปิดกว้างหรือใช้ Vercel's static IP add-on)
+2. สร้างหรือแก้ไข API Key
+3. **การตั้งค่าความปลอดภัย (Permissions):**
+   - ✅ เปิด **"Enable Reading"** (สำหรับอ่านข้อมูลพอร์ตและสแกนสัญญา)
+   - ✅ เปิด **"Enable Options Trading"** (หากต้องการใช้ฟังก์ชัน **1-Click Open & Close Positions** จาก Dashboard / Telegram)
+   - ❌ **ห้ามเปิด "Enable Spot & Margin Trading"**
+   - ❌ **ห้ามเปิด "Enable Withdrawals"** (เงินจะไม่มีทางถูกถอนออกได้ ปลอดภัย 100%)
+4. จำกัด IP access ถ้าทำได้ (เพิ่มความปลอดภัย)
 
 ### 2. เตรียม Groq API Key (ฟรี)
 
