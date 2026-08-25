@@ -24,7 +24,7 @@ export function ScannerTab({
 }) {
   const [sentMap, setSentMap] = useState({});
   const [selectedSize, setSelectedSize] = useState({});
-  const [expandedChecklist, setExpandedChecklist] = useState({});
+  const [expandedDetails, setExpandedDetails] = useState({});
   const [strategyFilter, setStrategyFilter] = useState("AUTO");
   const [simulatedFeedback, setSimulatedFeedback] = useState(null);
 
@@ -68,9 +68,9 @@ export function ScannerTab({
     }
   };
 
-  const toggleChecklist = (id) => {
+  const toggleDetails = (id) => {
     SoundFX.playClick();
-    setExpandedChecklist(prev => ({ ...prev, [id]: !prev[id] }));
+    setExpandedDetails(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
   const filteredOpps = useMemo(() => {
@@ -86,310 +86,123 @@ export function ScannerTab({
   }, [opportunities, strategyFilter, isBullishRegime]);
 
   return (
-    <div style={{ padding: "0 24px 32px", display: "flex", flexDirection: "column", gap: 20 }}>
+    <div style={{ padding: "0 24px 32px", display: "flex", flexDirection: "column", gap: 16 }}>
 
-      {/* ── AI Auto-Selected Market Regime & Optimal Strategy Card ───────────────── */}
+      {/* ── Consolidated AI Strategy & Market Status Banner ───────────────────── */}
       <div style={{
         background: `linear-gradient(135deg, ${T.bg2}, ${T.bg1})`,
-        border: `1px solid ${currentOptimal.tagColor}55`,
-        borderLeft: `4px solid ${currentOptimal.tagColor}`,
-        borderRadius: 14,
-        padding: "18px 22px",
-        boxShadow: `0 4px 25px rgba(0,0,0,0.35), 0 0 20px ${currentOptimal.tagColor}15`,
-        position: "relative",
-        overflow: "hidden",
-      }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-              <span style={{ fontSize: 18 }}>🧠</span>
-              <span style={{ color: T.textPrimary, fontFamily: T.fontSans, fontWeight: 900, fontSize: 13, letterSpacing: 1.5 }}>
-                AI MARKET REGIME ENGINE — กลยุทธ์ที่ระบบเลือกให้อัตโนมัติ
-              </span>
-              <span style={{
-                background: `${currentOptimal.tagColor}22`,
-                color: currentOptimal.tagColor,
-                border: `1px solid ${currentOptimal.tagColor}60`,
-                borderRadius: 6,
-                padding: "2px 8px",
-                fontSize: 10,
-                fontWeight: 900,
-                fontFamily: T.font,
-                letterSpacing: 1,
-              }}>
-                {currentOptimal.tag} (AUTO-OPTIMIZED)
-              </span>
-            </div>
-
-            <div style={{ color: T.textSecondary, fontSize: 13, fontFamily: T.fontSans, lineHeight: 1.6, maxWidth: 780, marginTop: 4 }}>
-              {currentOptimal.rationale}
-            </div>
-          </div>
-
-          <div style={{
-            background: T.bg1,
-            border: `1px solid ${T.border}`,
-            borderRadius: 10,
-            padding: "10px 16px",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "flex-end",
-          }}>
-            <div style={{ color: T.textSecondary, fontSize: 10, letterSpacing: 1, fontFamily: T.fontSans }}>ESTIMATED TARGET YIELD</div>
-            <div style={{ color: currentOptimal.tagColor, fontFamily: T.font, fontSize: 18, fontWeight: 900, marginTop: 2 }}>
-              {activeProfile.desc.split(",")[0] || "50–65% APY"}
-            </div>
-          </div>
-        </div>
-
-        {/* Real-Time Market Conditions Breakdown Grid */}
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-          gap: 10,
-          marginTop: 14,
-          paddingTop: 12,
-          borderTop: `1px solid ${T.border}`,
-        }}>
-          <div style={{ background: T.bg0, padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.border}` }}>
-            <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>MARKET TREND (VS MA20)</div>
-            <div style={{ color: (marketContext.distFromMA20 ?? 0) >= 0 ? T.green : T.red, fontFamily: T.font, fontSize: 13, fontWeight: 700, marginTop: 2 }}>
-              {(marketContext.distFromMA20 ?? 0) >= 0 ? "+" : ""}{(marketContext.distFromMA20 ?? 0).toFixed(1)}% {isBullishRegime ? "🔥 Bullish" : isBearishRegime ? "⚠️ Bearish" : "⚖️ Sideway"}
-            </div>
-          </div>
-
-          <div style={{ background: T.bg0, padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.border}` }}>
-            <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>MARKET IV RANK</div>
-            <div style={{ color: (ivRank || marketContext.ivRank) >= 40 ? T.purple : T.blue, fontFamily: T.font, fontSize: 13, fontWeight: 700, marginTop: 2 }}>
-              {ivRank || marketContext.ivRank || 45}% {(ivRank || marketContext.ivRank) >= 40 ? "💎 Premium สูง" : "Normal Volatility"}
-            </div>
-          </div>
-
-          <div style={{ background: T.bg0, padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.border}` }}>
-            <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>TARGET DELTA / DTE</div>
-            <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 13, fontWeight: 700, marginTop: 2 }}>
-              Delta {activeProfile.deltaMin}–{activeProfile.deltaMax} | DTE {activeProfile.dtePreferredMin}–{activeProfile.dtePreferredMax}d
-            </div>
-          </div>
-
-          <div style={{ background: T.bg0, padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.border}` }}>
-            <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>DYNAMIC TP TARGET</div>
-            <div style={{ color: T.green, fontFamily: T.font, fontSize: 13, fontWeight: 700, marginTop: 2 }}>
-              {activeProfile.takeProfitPct}% Profit (Auto Rotate)
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Account Balance & Margin Overview Banner */}
-      {accountInfo && (
-        <div style={{
-          background: `linear-gradient(135deg, ${T.bg2}, ${T.bg1})`,
-          border: `1px solid ${T.blue}28`,
-          borderRadius: 12,
-          padding: "16px 20px",
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-          gap: 16,
-          boxShadow: `0 4px 20px rgba(0,0,0,0.25)`,
-        }}>
-          <div>
-            <div style={{ color: T.textSecondary, fontSize: 10, letterSpacing: 1.5, fontFamily: T.fontSans, fontWeight: 600 }}>EQUITY (พอร์ตรวม)</div>
-            <div style={{ color: T.blue, fontFamily: T.font, fontSize: 20, fontWeight: 800, marginTop: 2 }}>
-              {fmtUSD(accountInfo.equity)}
-            </div>
-          </div>
-          <div>
-            <div style={{ color: T.textSecondary, fontSize: 10, letterSpacing: 1.5, fontFamily: T.fontSans, fontWeight: 600 }}>WALLET BALANCE</div>
-            <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 16, fontWeight: 700, marginTop: 4 }}>
-              {fmtUSD(accountInfo.balance)}
-            </div>
-          </div>
-          <div>
-            <div style={{ color: T.textSecondary, fontSize: 10, letterSpacing: 1.5, fontFamily: T.fontSans, fontWeight: 600 }}>MARGIN USED (MAX 30%)</div>
-            <div style={{
-              color: accountInfo.marginPct > 28 ? T.red : accountInfo.marginPct > 20 ? T.amber : T.green,
-              fontFamily: T.font, fontSize: 16, fontWeight: 700, marginTop: 4,
-            }}>
-              {fmtUSD(accountInfo.marginUsed)} <span style={{ fontSize: 11, color: T.textSecondary, fontWeight: 500 }}>({accountInfo.marginPct}% / 30%)</span>
-            </div>
-          </div>
-          <div>
-            <div style={{ color: T.textSecondary, fontSize: 10, letterSpacing: 1.5, fontFamily: T.fontSans, fontWeight: 600 }}>AVAILABLE (พร้อมเทรด)</div>
-            <div style={{ color: T.green, fontFamily: T.font, fontSize: 16, fontWeight: 700, marginTop: 4 }}>
-              {fmtUSD(accountInfo.availableBalance)}
-            </div>
-          </div>
-          <div>
-            <div style={{ color: T.textSecondary, fontSize: 10, letterSpacing: 1.5, fontFamily: T.fontSans, fontWeight: 600 }}>UNREALIZED P&L</div>
-            <div style={{
-              color: accountInfo.unrealizedPnl >= 0 ? T.green : T.red,
-              fontFamily: T.font, fontSize: 16, fontWeight: 700, marginTop: 4,
-            }}>
-              {accountInfo.unrealizedPnl >= 0 ? "+" : ""}{fmtUSD(accountInfo.unrealizedPnl)}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Sonar Radar Orbit & Market Regime Advisory Banner */}
-      <div style={{
-        background: isBullishRegime
-          ? `linear-gradient(135deg, rgba(0, 240, 168, 0.08), rgba(10, 14, 20, 0.95))`
-          : isBearishRegime
-          ? `linear-gradient(135deg, rgba(255, 51, 102, 0.08), rgba(10, 14, 20, 0.95))`
-          : `linear-gradient(135deg, ${T.bg2}, ${T.bg1})`,
-        border: `1px solid ${isBullishRegime ? T.greenMid : isBearishRegime ? T.red + "44" : T.border}`,
-        borderRadius: 14,
-        padding: "16px 20px",
+        border: `1px solid ${currentOptimal.tagColor}44`,
+        borderRadius: 12,
+        padding: "14px 18px",
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
         flexWrap: "wrap",
-        gap: 16,
-        boxShadow: isBullishRegime ? `0 4px 25px rgba(0, 240, 168, 0.15)` : "0 4px 16px rgba(0,0,0,0.3)",
-        position: "relative",
-        overflow: "hidden",
+        gap: 12,
+        boxShadow: "0 4px 16px rgba(0,0,0,0.25)",
       }}>
-        {/* Animated Sonar Radar Orbit Display */}
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <div
-            style={{
-              width: 52,
-              height: 52,
-              borderRadius: "50%",
-              border: `1.5px solid ${T.green}55`,
-              position: "relative",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              background: "radial-gradient(circle, rgba(0,240,168,0.15) 0%, transparent 70%)",
-              flexShrink: 0,
-            }}
-          >
-            <div
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                width: "100%",
-                height: "100%",
-                borderRadius: "50%",
-                background: `conic-gradient(from 0deg, transparent 0deg, transparent 270deg, rgba(0,240,168,0.4) 360deg)`,
-                animation: "radarSweep 3s linear infinite",
-              }}
-            />
-            <div style={{ width: 8, height: 8, borderRadius: "50%", background: T.green, boxShadow: `0 0 10px ${T.green}` }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div style={{
+            background: `${currentOptimal.tagColor}18`,
+            color: currentOptimal.tagColor,
+            border: `1px solid ${currentOptimal.tagColor}50`,
+            borderRadius: 8,
+            padding: "5px 12px",
+            fontSize: 12,
+            fontWeight: 800,
+            fontFamily: T.font,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+          }}>
+            <span>🎯</span>
+            <span>{currentOptimal.tag}</span>
           </div>
 
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-              <span style={{
-                color: isBullishRegime ? T.green : isBearishRegime ? T.red : T.blue,
-                fontWeight: 800, fontSize: 13, letterSpacing: 1.5, fontFamily: T.fontSans,
-              }}>
-                {isBullishRegime
-                  ? `ALPHA RADAR: STRONG BULLISH (+${marketContext.distFromMA20}% จาก MA20 | IVR ${marketContext.ivRank ?? ivRank}%)`
-                  : isBearishRegime
-                  ? `ALPHA RADAR: BEARISH DEFENSE (${marketContext.distFromMA20}% จาก MA20)`
-                  : "ALPHA RADAR: SIDEWAY / THETA HARVEST MODE"}
-              </span>
-            </div>
-            <div style={{ color: T.textSecondary, fontSize: 12, fontFamily: T.fontSans, lineHeight: 1.5 }}>
-              {isBullishRegime ? (
-                <span>
-                  💡 ตลาดมี Momentum ขาขึ้นแรง + ค่าความผันผวนสูง แนะนำ <strong style={{ color: T.green }}>Bullish Short Put</strong> หรือ <strong style={{ color: T.blue }}>Skewed Strangle</strong> เพื่อเก็บค่าพรีเมียมสูงสุด
-                </span>
-              ) : isBearishRegime ? (
-                <span>
-                  ⚠️ ตลาดหลุดต่ำกว่าเส้นค่าเฉลี่ย 20 วัน ระมัดระวังการเปิด Short Put และติดตาม Stop Loss อย่างเคร่งครัด
-                </span>
-              ) : (
-                <span>
-                  ตรวจพบ <strong>{filteredOpps.length} โอกาสทอง</strong> พร้อมอัตราผลตอบแทนเฉลี่ย <strong>~50–85% APY</strong>
-                </span>
-              )}
-            </div>
+          <div style={{ color: T.textSecondary, fontSize: 12, fontFamily: T.fontSans }}>
+            {currentOptimal.rationale}
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          {isBullishRegime && <Pill color={T.green}>⭐ TARGET LOCKED</Pill>}
-          <Pill color={T.amber}>DTE {activeProfile.dtePreferredMin}–{activeProfile.dtePreferredMax}d</Pill>
-          <Pill color={T.purple}>IVR ≥ 28%</Pill>
-          <button
-            onClick={() => {
-              SoundFX.playRadarPing();
-            }}
-            style={{
-              background: T.bg3,
-              border: `1px solid ${T.borderHover}`,
-              color: T.green,
-              borderRadius: 6,
-              padding: "4px 10px",
-              fontSize: 11,
-              fontFamily: T.font,
-              fontWeight: 700,
-              cursor: "pointer",
-            }}
-          >
-            📡 PING RADAR
-          </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 11, color: T.textMuted, fontFamily: T.fontSans }}>
+            MA20: <strong style={{ color: (marketContext.distFromMA20 ?? 0) >= 0 ? T.green : T.red }}>
+              {(marketContext.distFromMA20 ?? 0) >= 0 ? "+" : ""}{(marketContext.distFromMA20 ?? 0).toFixed(1)}%
+            </strong>
+          </div>
+          <div style={{ fontSize: 11, color: T.textMuted, fontFamily: T.fontSans }}>
+            IVR: <strong style={{ color: T.purple }}>{ivRank || marketContext.ivRank || 45}%</strong>
+          </div>
+          <div style={{ fontSize: 11, color: T.textMuted, fontFamily: T.fontSans }}>
+            Target: <strong style={{ color: currentOptimal.tagColor }}>{activeProfile.desc.split(",")[0]}</strong>
+          </div>
         </div>
       </div>
 
-      {/* Strategy Filter Tabs */}
+      {/* ── Compact Strategy Filters ────────────────────────────────────────── */}
       <div style={{
         display: "flex",
-        gap: 8,
+        justifyContent: "space-between",
+        alignItems: "center",
         flexWrap: "wrap",
-        background: T.bg1,
-        padding: 6,
-        borderRadius: 10,
-        border: `1px solid ${T.border}`,
+        gap: 8,
       }}>
-        {[
-          { key: "AUTO", label: `🔥 สแกนตามสภาวะตลาด (AUTO)${isBullishRegime ? " — BULLISH" : ""}`, color: T.green },
-          { key: "SHORT_PUT", label: "🟢 BULLISH SHORT PUT ⭐", color: T.green },
-          { key: "SKEWED_STRANGLE", label: "⚡ SKEWED STRANGLE", color: T.blue },
-          { key: "STRANGLE", label: "⚖️ SHORT STRANGLE (Sideway)", color: T.purple },
-          { key: "ALL", label: `ทั้งหมด (${opportunities.length})`, color: T.textSecondary },
-        ].map(tab => {
-          const isActive = strategyFilter === tab.key;
-          return (
-            <button
-              key={tab.key}
-              onClick={() => {
-                SoundFX.playClick();
-                setStrategyFilter(tab.key);
-              }}
-              style={{
-                padding: "8px 16px",
-                borderRadius: 8,
-                border: `1px solid ${isActive ? tab.color : "transparent"}`,
-                background: isActive ? `${tab.color}18` : "transparent",
-                color: isActive ? tab.color : T.textSecondary,
-                fontFamily: T.fontSans,
-                fontSize: 12,
-                fontWeight: 700,
-                cursor: "pointer",
-                transition: "all 0.15s ease",
-              }}
-            >
-              {tab.label}
-            </button>
-          );
-        })}
+        <div style={{
+          display: "flex",
+          gap: 6,
+          flexWrap: "wrap",
+          background: T.bg1,
+          padding: 4,
+          borderRadius: 8,
+          border: `1px solid ${T.border}`,
+        }}>
+          {[
+            { key: "AUTO", label: `⚡ แนะนำ (${filteredOpps.length})`, color: T.green },
+            { key: "SHORT_PUT", label: "🟢 Short Put", color: T.green },
+            { key: "SKEWED_STRANGLE", label: "⚡ Skewed Strangle", color: T.blue },
+            { key: "STRANGLE", label: "⚖️ Strangle", color: T.purple },
+            { key: "ALL", label: `ทั้งหมด (${opportunities.length})`, color: T.textSecondary },
+          ].map(tab => {
+            const isActive = strategyFilter === tab.key;
+            return (
+              <button
+                key={tab.key}
+                onClick={() => {
+                  SoundFX.playClick();
+                  setStrategyFilter(tab.key);
+                }}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: 6,
+                  border: `1px solid ${isActive ? tab.color : "transparent"}`,
+                  background: isActive ? `${tab.color}15` : "transparent",
+                  color: isActive ? tab.color : T.textSecondary,
+                  fontFamily: T.fontSans,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <span style={{ fontSize: 11, color: T.textMuted, fontFamily: T.fontSans }}>
+          แสดง <strong>{filteredOpps.length}</strong> สัญญาที่ตรงเกณฑ์
+        </span>
       </div>
 
-      {/* Opportunities List */}
+      {/* ── Opportunities Grid ──────────────────────────────────────────────── */}
       {filteredOpps.length === 0 ? (
-        <div style={{ padding: 60, textAlign: "center", color: T.textMuted, fontFamily: T.fontSans, fontSize: 13, background: T.bg1, borderRadius: 12, border: `1px solid ${T.border}` }}>
-          ⏳ กำลังสแกนตลาด หรือไม่พบคู่สัญญาในหมวดนี้ที่เข้าเกณฑ์ในขณะนี้...
+        <div style={{ padding: 48, textAlign: "center", color: T.textMuted, fontFamily: T.fontSans, fontSize: 13, background: T.bg1, borderRadius: 12, border: `1px solid ${T.border}` }}>
+          ⏳ กำลังสแกนหาจังหวะที่เข้าเกณฑ์ปลอดภัย หรือไม่พบคู่สัญญาในหมวดนี้ขณะนี้...
         </div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(440px, 1fr))", gap: 18 }}>
-          {filteredOpps.map((opp, idx) => {
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))", gap: 14 }}>
+          {filteredOpps.map((opp) => {
             const isSent = sentMap[opp.id] === "sent";
             const isSending = sentMap[opp.id] === "sending";
             const isShortPut = opp.strategy === "SHORT_PUT";
@@ -398,380 +211,220 @@ export function ScannerTab({
             const sizing = calculatePositionSize(accountInfo, opp, btcPrice, evaluation.sizeMultiplier);
             const chosenSize = selectedSize[opp.id] ?? (sizing.defaultLot?.size ?? 0.01);
             const chosenLot = sizing.lots?.find(l => l.size === chosenSize) || sizing.defaultLot;
-            const isChecklistOpen = Boolean(expandedChecklist[opp.id]);
+            const isExpanded = Boolean(expandedDetails[opp.id]);
             const isSimulated = simulatedFeedback === opp.id;
 
             const apy = opp.annualizedYield || (opp.totalPremium ? Math.round((opp.totalPremium / (btcPrice * 0.18)) * (365 / (opp.dte || 14)) * 100) : 45);
 
             return (
-              <div key={opp.id} style={{
-                background: `linear-gradient(180deg, ${T.bg1}, ${T.bg0})`,
-                border: `1px solid ${evaluation.isBlocked ? T.red + "35" : evaluation.isPassed ? (opp.badgeColor || T.greenMid) : T.border}`,
-                borderRadius: 14,
-                padding: 20,
-                display: "flex",
-                flexDirection: "column",
-                gap: 16,
-                boxShadow: evaluation.isPassed
-                  ? `0 8px 28px rgba(0,0,0,0.4), 0 0 25px ${(opp.badgeColor || T.green)}18`
-                  : "0 4px 16px rgba(0,0,0,0.2)",
-                position: "relative",
-                transition: "all 0.2s ease",
-              }}>
-                {/* APY Yield Banner Top Right */}
-                <div style={{
-                  position: "absolute",
-                  top: -11,
-                  right: 20,
-                  background: apy >= 65
-                    ? `linear-gradient(135deg, ${T.amber}, #d97706)`
-                    : `linear-gradient(135deg, ${T.green}, #00b380)`,
-                  color: "#05080c",
-                  padding: "3px 12px",
-                  borderRadius: 20,
-                  fontSize: 10,
-                  fontWeight: 900,
-                  fontFamily: T.font,
-                  boxShadow: `0 0 15px ${apy >= 65 ? "rgba(251, 191, 36, 0.5)" : "rgba(0, 240, 168, 0.4)"}`,
-                  letterSpacing: 0.5,
-                }}>
-                  {apy >= 65 ? "🔥" : "💎"} EST. YIELD ~{apy}% APY
-                </div>
-
-                {/* Card Top Header */}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${T.border}`, paddingBottom: 12 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <Pill color={opp.badgeColor || T.green}>
-                      {opp.badgeText || opp.strategyName || "STRATEGY"}
-                    </Pill>
-                    <span style={{ color: T.textPrimary, fontFamily: T.fontSans, fontWeight: 700, fontSize: 14 }}>
-                      📅 Expiry: {opp.expiry}
-                    </span>
-                    <Pill color={opp.isPreferredDTE ? T.green : opp.isIdealDTE ? T.blue : T.textSecondary}>
-                      {opp.dte} วัน {opp.isPreferredDTE ? "★ FAST THETA" : opp.isIdealDTE ? "IDEAL" : ""}
-                    </Pill>
-                    {opp.isFullyHeld ? (
-                      <Pill color={T.blue}>✓ ถือในพอร์ตแล้ว</Pill>
-                    ) : opp.isPutHeld ? (
-                      <Pill color={T.amber}>✓ มี Put ในพอร์ต</Pill>
-                    ) : opp.isCallHeld ? (
-                      <Pill color={T.blue}>✓ มี Call ในพอร์ต</Pill>
-                    ) : null}
-                  </div>
-
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ color: T.textSecondary, fontSize: 9, letterSpacing: 1.5, fontFamily: T.fontSans }}>BTC SPOT</div>
-                    <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 14, fontWeight: 700 }}>
-                      {fmtUSD(opp.btcPrice)}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Rules Engine Decision Banner */}
-                <div style={{
-                  background: evaluation.isBlocked ? T.redDim : evaluation.isWarning ? T.amberDim : T.greenDim,
-                  border: `1px solid ${evaluation.isBlocked ? T.red + "35" : evaluation.isWarning ? T.amber + "35" : T.greenMid}`,
-                  borderRadius: 8,
-                  padding: "10px 14px",
+              <div
+                key={opp.id}
+                style={{
+                  background: T.bg1,
+                  border: `1px solid ${evaluation.isBlocked ? T.red + "30" : evaluation.isPassed ? T.borderHover : T.border}`,
+                  borderRadius: 12,
+                  padding: "16px 18px",
                   display: "flex",
                   flexDirection: "column",
-                  gap: 6,
-                }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 12 }}>
-                        {evaluation.isBlocked ? "❌" : evaluation.isWarning ? "⚠️" : "✅"}
-                      </span>
-                      <span style={{
-                        color: evaluation.isBlocked ? T.red : evaluation.isWarning ? T.amber : T.green,
-                        fontFamily: T.fontSans, fontWeight: 700, fontSize: 11, letterSpacing: 0.5,
-                      }}>
-                        {evaluation.isBlocked
-                          ? "ENTRY DECISION: BLOCKED"
-                          : evaluation.isWarning
-                          ? `ENTRY DECISION: PASS WITH WARNING (Size ${Math.round(evaluation.sizeMultiplier * 100)}%)`
-                          : "ENTRY DECISION: PASS (100% READY)"}
-                      </span>
-                    </div>
-
-                    <button
-                      onClick={() => toggleChecklist(opp.id)}
-                      style={{
-                        background: "none", border: "none", color: T.textSecondary,
-                        cursor: "pointer", fontFamily: T.fontSans, fontSize: 11, textDecoration: "underline",
-                      }}
-                    >
-                      {isChecklistOpen ? "ซ่อน Checklist ▲" : "ดู Checklist (กฎความปลอดภัย) ▼"}
-                    </button>
+                  gap: 12,
+                  boxShadow: "0 2px 10px rgba(0,0,0,0.2)",
+                  transition: "all 0.2s ease",
+                }}
+              >
+                {/* 1. Header: Strategy + Expiry + Status Pill */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <Pill color={opp.badgeColor || T.green}>
+                      {opp.badgeText || opp.strategyName}
+                    </Pill>
+                    <span style={{ color: T.textPrimary, fontFamily: T.fontSans, fontWeight: 700, fontSize: 13 }}>
+                      {opp.expiry}
+                    </span>
+                    <span style={{
+                      background: opp.isPreferredDTE ? T.greenDim : T.bg2,
+                      color: opp.isPreferredDTE ? T.green : T.textSecondary,
+                      borderRadius: 4, padding: "2px 6px", fontSize: 10, fontFamily: T.font, fontWeight: 700,
+                    }}>
+                      {opp.dte} วัน {opp.isPreferredDTE ? "★" : ""}
+                    </span>
                   </div>
 
-                  {evaluation.reasons.length > 0 && !isChecklistOpen && (
-                    <div style={{ color: T.textSecondary, fontSize: 11, fontFamily: T.fontSans, marginTop: 2, lineHeight: 1.4 }}>
-                      {evaluation.reasons.slice(0, 2).map((r, i) => (
-                        <div key={i}>{r}</div>
-                      ))}
-                    </div>
-                  )}
-
-                  {isChecklistOpen && (
-                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}`, display: "flex", flexDirection: "column", gap: 6 }}>
-                      {evaluation.checks.map((chk, i) => (
-                        <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, fontFamily: T.fontSans }}>
-                          <span style={{ color: T.textSecondary }}>{chk.icon} {chk.rule}:</span>
-                          <span style={{
-                            color: chk.status === "PASS" ? T.green : chk.status === "WARNING" ? T.amber : T.red,
-                            fontFamily: T.font, fontWeight: 600,
-                          }}>
-                            {chk.message}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{
+                      background: evaluation.isBlocked ? T.redDim : evaluation.isWarning ? T.amberDim : T.greenDim,
+                      color: evaluation.isBlocked ? T.red : evaluation.isWarning ? T.amber : T.green,
+                      borderRadius: 4, padding: "2px 8px", fontSize: 10, fontWeight: 800, fontFamily: T.font,
+                    }}>
+                      {evaluation.isBlocked ? "BLOCKED" : evaluation.isWarning ? "WARN" : "READY"}
+                    </span>
+                    <span style={{
+                      background: apy >= 65 ? T.amberDim : T.greenDim,
+                      color: apy >= 65 ? T.amber : T.green,
+                      borderRadius: 4, padding: "2px 8px", fontSize: 11, fontWeight: 900, fontFamily: T.font,
+                    }}>
+                      ~{apy}% APY
+                    </span>
+                  </div>
                 </div>
 
-                {/* Strategy Legs Display */}
-                {isShortPut ? (
-                  <div style={{
-                    background: T.bg2,
-                    border: `1px solid ${T.green}28`,
-                    borderLeft: `4px solid ${T.green}`,
-                    borderRadius: 10,
-                    padding: 16,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 12,
-                  }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <div>
-                        <div style={{ color: T.green, fontWeight: 800, fontSize: 12, letterSpacing: 1, fontFamily: T.fontSans }}>
-                          SHORT PUT STRIKE
-                        </div>
-                        <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 22, fontWeight: 800, marginTop: 2 }}>
-                          {fmtUSD(opp.putStrike)}
-                        </div>
-                      </div>
-                      <div style={{ textAlign: "right" }}>
-                        <div style={{ color: T.textSecondary, fontSize: 10, fontFamily: T.fontSans }}>SAFETY BUFFER</div>
-                        <div style={{ color: T.green, fontFamily: T.font, fontSize: 16, fontWeight: 800 }}>
-                          -{opp.putDistancePct}%
-                        </div>
-                        <div style={{ color: T.textMuted, fontSize: 9, fontFamily: T.fontSans }}>ต่ำกว่า Spot</div>
-                      </div>
-                    </div>
-
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, background: T.bg1, padding: "8px 12px", borderRadius: 6, fontSize: 11, fontFamily: T.font }}>
-                      <div>
-                        <span style={{ color: T.textSecondary, fontSize: 9, display: "block" }}>DELTA</span>
-                        <strong style={{ color: T.amber }}>{opp.putDelta}</strong>
-                      </div>
-                      <div>
-                        <span style={{ color: T.textSecondary, fontSize: 9, display: "block" }}>IV</span>
-                        <strong style={{ color: T.purple }}>{opp.putIV}%</strong>
-                      </div>
-                      <div>
-                        <span style={{ color: T.textSecondary, fontSize: 9, display: "block" }}>MARK PRICE</span>
-                        <strong style={{ color: T.green }}>+${opp.putMark}</strong>
-                      </div>
-                      <div>
-                        <span style={{ color: T.textSecondary, fontSize: 9, display: "block" }}>THETA/วัน</span>
-                        <strong style={{ color: T.green }}>+${opp.totalTheta}</strong>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                    <div style={{
-                      background: T.bg2, border: `1px solid ${T.amber}28`,
-                      borderLeft: `3px solid ${T.amber}`, borderRadius: 8, padding: 12,
-                    }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                        <span style={{ color: T.amber, fontWeight: 700, fontSize: 11, letterSpacing: 1, fontFamily: T.fontSans }}>SHORT PUT</span>
-                        <span style={{ color: T.textSecondary, fontSize: 10, fontFamily: T.font }}>-{opp.putDistancePct}%</span>
-                      </div>
-                      <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 17, fontWeight: 800 }}>
+                {/* 2. Strikes & Financial Metrics (Clean Compact Grid) */}
+                <div style={{
+                  background: T.bg0,
+                  borderRadius: 8,
+                  padding: "10px 14px",
+                  border: `1px solid ${T.border}`,
+                  display: "grid",
+                  gridTemplateColumns: isShortPut ? "1.5fr 1fr 1fr 1fr" : "1.2fr 1.2fr 1fr 1fr",
+                  gap: 8,
+                  alignItems: "center",
+                }}>
+                  {isShortPut ? (
+                    <div>
+                      <div style={{ color: T.textMuted, fontSize: 9, fontFamily: T.fontSans }}>PUT STRIKE</div>
+                      <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 15, fontWeight: 800 }}>
                         {fmtUSD(opp.putStrike)}
                       </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 11, color: T.textSecondary, fontFamily: T.font }}>
-                        <span>Delta: <strong style={{ color: T.amber }}>{opp.putDelta}</strong></span>
-                        <span>Mark: <strong style={{ color: T.green }}>+${opp.putMark}</strong></span>
-                      </div>
+                      <div style={{ color: T.green, fontSize: 10, fontFamily: T.font }}>-{opp.putDistancePct}% OTM</div>
                     </div>
+                  ) : (
+                    <>
+                      <div>
+                        <div style={{ color: T.textMuted, fontSize: 9, fontFamily: T.fontSans }}>PUT STRIKE</div>
+                        <div style={{ color: T.amber, fontFamily: T.font, fontSize: 13, fontWeight: 700 }}>
+                          {fmtUSD(opp.putStrike)}
+                        </div>
+                        <div style={{ color: T.textSecondary, fontSize: 9, fontFamily: T.font }}>-{opp.putDistancePct}%</div>
+                      </div>
+                      <div>
+                        <div style={{ color: T.textMuted, fontSize: 9, fontFamily: T.fontSans }}>CALL STRIKE</div>
+                        <div style={{ color: T.blue, fontFamily: T.font, fontSize: 13, fontWeight: 700 }}>
+                          {fmtUSD(opp.callStrike)}
+                        </div>
+                        <div style={{ color: T.textSecondary, fontSize: 9, fontFamily: T.font }}>+{opp.callDistancePct}%</div>
+                      </div>
+                    </>
+                  )}
 
-                    <div style={{
-                      background: T.bg2, border: `1px solid ${T.blue}28`,
-                      borderLeft: `3px solid ${T.blue}`, borderRadius: 8, padding: 12,
-                    }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                        <span style={{ color: T.blue, fontWeight: 700, fontSize: 11, letterSpacing: 1, fontFamily: T.fontSans }}>
-                          {opp.strategy === "SKEWED_STRANGLE" ? "WIDE SHORT CALL" : "SHORT CALL"}
-                        </span>
-                        <span style={{ color: T.textSecondary, fontSize: 10, fontFamily: T.font }}>+{opp.callDistancePct}%</span>
-                      </div>
-                      <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 17, fontWeight: 800 }}>
-                        {fmtUSD(opp.callStrike)}
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 11, color: T.textSecondary, fontFamily: T.font }}>
-                        <span>Delta: <strong style={{ color: T.blue }}>+{opp.callDelta}</strong></span>
-                        <span>Mark: <strong style={{ color: T.green }}>+${opp.callMark}</strong></span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Strategy Summary Metrics */}
-                <div style={{
-                  background: T.bg2, borderRadius: 8, padding: "12px 14px",
-                  display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10,
-                  border: `1px solid ${T.border}`,
-                }}>
                   <div>
-                    <div style={{ color: T.textSecondary, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>
-                      {isShortPut ? "PREMIUM รับสุทธิ" : "PREMIUM รวม"}
+                    <div style={{ color: T.textMuted, fontSize: 9, fontFamily: T.fontSans }}>PREMIUM</div>
+                    <div style={{ color: T.green, fontFamily: T.font, fontSize: 13, fontWeight: 800 }}>
+                      +${opp.totalPremium}
                     </div>
-                    <div style={{ color: T.green, fontFamily: T.font, fontSize: 17, fontWeight: 800 }}>
-                      +${opp.totalPremium} <span style={{ fontSize: 10, color: T.textSecondary, fontWeight: 400 }}>/ 1 BTC</span>
-                    </div>
+                    <div style={{ color: T.textMuted, fontSize: 9 }}>/ 1 BTC</div>
                   </div>
 
                   <div>
-                    <div style={{ color: T.textSecondary, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>THETA DECAY</div>
-                    <div style={{ color: T.green, fontFamily: T.font, fontSize: 15, fontWeight: 700 }}>
-                      +${opp.totalTheta} <span style={{ fontSize: 10, color: T.textSecondary, fontWeight: 400 }}>/ วัน</span>
+                    <div style={{ color: T.textMuted, fontSize: 9, fontFamily: T.fontSans }}>THETA/วัน</div>
+                    <div style={{ color: T.green, fontFamily: T.font, fontSize: 13, fontWeight: 700 }}>
+                      +${opp.totalTheta}
                     </div>
+                    <div style={{ color: T.textMuted, fontSize: 9 }}>Decay</div>
                   </div>
 
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ color: T.textSecondary, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>
-                      EST. ANNUAL YIELD
+                  <div>
+                    <div style={{ color: T.textMuted, fontSize: 9, fontFamily: T.fontSans }}>DELTA</div>
+                    <div style={{ color: T.amber, fontFamily: T.font, fontSize: 13, fontWeight: 700 }}>
+                      {isShortPut ? opp.putDelta : `${opp.putDelta} / +${opp.callDelta}`}
                     </div>
-                    <div style={{ color: apy >= 65 ? T.amber : T.green, fontFamily: T.font, fontSize: 15, fontWeight: 800 }}>
-                      ~{apy}% APY
-                    </div>
+                    <div style={{ color: T.textMuted, fontSize: 9 }}>IV {opp.putIV}%</div>
                   </div>
                 </div>
 
-                {/* Position Sizing Section */}
+                {/* 3. Compact Position Size Selector */}
                 {sizing.available && (
                   <div style={{
-                    background: `linear-gradient(135deg, ${T.bg2}, ${T.bg3})`,
-                    border: `1px solid ${T.blue}24`,
-                    borderRadius: 8, padding: "12px 14px",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    background: T.bg2,
+                    borderRadius: 6,
+                    padding: "6px 10px",
+                    fontSize: 11,
+                    fontFamily: T.fontSans,
                   }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                      <span style={{ color: T.blue, fontWeight: 700, fontSize: 10, letterSpacing: 1.5, fontFamily: T.fontSans }}>
-                        📐 POSITION SIZING (คำนวณตามพอร์ตจริง)
-                      </span>
-                      {sizing.recommendedLot && !evaluation.isBlocked && (
-                        <Pill color={T.green}>
-                          ★ แนะนำ {sizing.recommendedLot.label} BTC
-                        </Pill>
-                      )}
-                    </div>
-
-                    <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
-                      <span style={{ fontSize: 11, color: T.textSecondary, fontFamily: T.fontSans, marginRight: 2 }}>เลือกขนาด:</span>
-                      {sizing.lots.filter(l => l.canAfford || l.size <= 0.05).map(lot => {
-                        const isSelected = lot.size === chosenSize;
-                        const isRec = sizing.recommendedLot?.size === lot.size && !evaluation.isBlocked;
-                        return (
-                          <button
-                            key={lot.size}
-                            onClick={() => {
-                              SoundFX.playClick();
-                              setSelectedSize(prev => ({ ...prev, [opp.id]: lot.size }));
-                            }}
-                            style={{
-                              padding: "5px 10px", borderRadius: 6, cursor: "pointer",
-                              fontFamily: T.font, fontSize: 11, fontWeight: 700,
-                              background: isSelected ? (lot.canAfford ? T.greenDim : T.redDim) : T.bg1,
-                              border: `1px solid ${isSelected ? (lot.canAfford ? T.greenMid : T.red + "44") : T.border}`,
-                              color: isSelected ? (lot.canAfford ? T.green : T.red) : (lot.canAfford ? T.textSecondary : T.textMuted),
-                              opacity: lot.canAfford ? 1 : 0.5,
-                              transition: "all 0.15s ease",
-                            }}
-                          >
-                            {lot.label} {isRec && <span style={{ color: T.green, marginLeft: 2, fontSize: 10 }}>★</span>}
-                          </button>
-                        );
-                      })}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ color: T.textSecondary }}>ขนาดไม้:</span>
+                      {sizing.lots.filter(l => l.canAfford || l.size <= 0.05).slice(0, 4).map(lot => (
+                        <button
+                          key={lot.size}
+                          onClick={() => {
+                            SoundFX.playClick();
+                            setSelectedSize(prev => ({ ...prev, [opp.id]: lot.size }));
+                          }}
+                          style={{
+                            background: chosenSize === lot.size ? T.greenDim : T.bg0,
+                            border: `1px solid ${chosenSize === lot.size ? T.greenMid : T.border}`,
+                            color: chosenSize === lot.size ? T.green : T.textSecondary,
+                            borderRadius: 4,
+                            padding: "2px 6px",
+                            cursor: "pointer",
+                            fontSize: 10,
+                            fontFamily: T.font,
+                            fontWeight: 700,
+                          }}
+                        >
+                          {lot.label}
+                        </button>
+                      ))}
                     </div>
 
                     {chosenLot && (
-                      <div style={{
-                        display: "grid", gridTemplateColumns: "1fr 1fr 1fr",
-                        gap: 8, background: T.bg1, borderRadius: 6, padding: "10px 12px",
-                      }}>
-                        <div>
-                          <div style={{ color: T.textSecondary, fontSize: 8, letterSpacing: 1, fontFamily: T.fontSans }}>AMOUNT</div>
-                          <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 14, fontWeight: 700 }}>
-                            {chosenLot.label} <span style={{ fontSize: 10, color: T.textSecondary }}>BTC</span>
-                          </div>
-                        </div>
-                        <div>
-                          <div style={{ color: T.textSecondary, fontSize: 8, letterSpacing: 1, fontFamily: T.fontSans }}>MARGIN ≈</div>
-                          <div style={{ color: T.amber, fontFamily: T.font, fontSize: 14, fontWeight: 700 }}>
-                            ${chosenLot.marginRequired.toLocaleString()}
-                          </div>
-                        </div>
-                        <div>
-                          <div style={{ color: T.textSecondary, fontSize: 8, letterSpacing: 1, fontFamily: T.fontSans }}>PREMIUM รับ</div>
-                          <div style={{ color: T.green, fontFamily: T.font, fontSize: 14, fontWeight: 700 }}>
-                            +${chosenLot.premiumReceived.toLocaleString()}
-                          </div>
-                        </div>
+                      <div style={{ color: T.textSecondary, fontSize: 10, fontFamily: T.font }}>
+                        Margin: <strong style={{ color: T.amber }}>${chosenLot.marginRequired}</strong> · รับ: <strong style={{ color: T.green }}>+${chosenLot.premiumReceived}</strong>
                       </div>
                     )}
                   </div>
                 )}
 
-                {/* Action Buttons Grid */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: "auto" }}>
+                {/* 4. Action Buttons Toolbar */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6 }}>
                   <button
                     onClick={() => {
                       SoundFX.playClick();
                       onOpenPayoff?.({ ...opp, suggestedSize: chosenSize });
                     }}
+                    title="เปิด Payoff Simulator ดูกราฟกำไรขาดทุน"
                     style={{
                       background: T.bg2,
-                      border: `1px solid ${T.blue}40`,
+                      border: `1px solid ${T.blue}33`,
                       color: T.blue,
-                      borderRadius: 8,
-                      padding: "9px 12px",
+                      borderRadius: 6,
+                      padding: "6px 8px",
                       cursor: "pointer",
-                      fontFamily: T.fontSans,
-                      fontSize: 12,
+                      fontSize: 11,
                       fontWeight: 700,
+                      fontFamily: T.fontSans,
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      gap: 6,
+                      gap: 4,
                     }}
                   >
                     <span>📊</span>
-                    <span>PAYOFF SIMULATOR</span>
+                    <span>PAYOFF</span>
                   </button>
 
                   <button
                     onClick={() => handleSimulate(opp, chosenSize)}
+                    title="ทดลองเทรดจำลอง Paper Trading"
                     style={{
-                      background: isSimulated ? T.green : `linear-gradient(135deg, ${T.purpleDim}, ${T.bg2})`,
-                      border: `1px solid ${isSimulated ? T.green : T.purple}55`,
+                      background: isSimulated ? T.green : T.bg2,
+                      border: `1px solid ${isSimulated ? T.green : T.purple}33`,
                       color: isSimulated ? "#05080c" : T.purple,
-                      borderRadius: 8,
-                      padding: "9px 12px",
+                      borderRadius: 6,
+                      padding: "6px 8px",
                       cursor: "pointer",
+                      fontSize: 11,
+                      fontWeight: 700,
                       fontFamily: T.fontSans,
-                      fontSize: 12,
-                      fontWeight: 800,
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      gap: 6,
+                      gap: 4,
                     }}
                   >
                     <span>⚡</span>
-                    <span>{isSimulated ? "✓ SIMULATED!" : "PAPER TRADE"}</span>
+                    <span>{isSimulated ? "DONE" : "PAPER"}</span>
                   </button>
 
                   <button
@@ -779,49 +432,88 @@ export function ScannerTab({
                       SoundFX.playClick();
                       onAnalyzeStrangle(opp);
                     }}
+                    title="AI วิเคราะห์ความเสี่ยงเชิงลึก"
                     style={{
                       background: T.greenDim,
                       border: `1px solid ${T.greenMid}`,
                       color: T.green,
-                      borderRadius: 8,
-                      padding: "9px 12px",
+                      borderRadius: 6,
+                      padding: "6px 8px",
                       cursor: "pointer",
-                      fontFamily: T.fontSans,
-                      fontSize: 12,
+                      fontSize: 11,
                       fontWeight: 700,
+                      fontFamily: T.fontSans,
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      gap: 6,
+                      gap: 4,
                     }}
                   >
                     <span>🧠</span>
-                    <span>AI ANALYZE</span>
+                    <span>AI RISK</span>
                   </button>
 
                   <button
                     onClick={() => handleSendTelegram(opp)}
                     disabled={isSending || evaluation.isBlocked}
+                    title="ส่งสัญญาณเข้า Telegram"
                     style={{
                       background: isSent ? T.green : evaluation.isBlocked ? T.bg3 : T.bg2,
                       border: `1px solid ${isSent ? T.green : T.border}`,
                       color: isSent ? T.bg0 : evaluation.isBlocked ? T.textMuted : T.textPrimary,
-                      borderRadius: 8,
-                      padding: "9px 12px",
+                      borderRadius: 6,
+                      padding: "6px 8px",
                       cursor: evaluation.isBlocked ? "not-allowed" : "pointer",
-                      fontFamily: T.fontSans,
-                      fontSize: 12,
+                      fontSize: 11,
                       fontWeight: 700,
+                      fontFamily: T.fontSans,
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      gap: 6,
+                      gap: 4,
                       opacity: evaluation.isBlocked ? 0.5 : 1,
                     }}
                   >
                     <span>📨</span>
-                    <span>{isSending ? "SENDING..." : isSent ? "✓ SENT" : "TELEGRAM"}</span>
+                    <span>{isSending ? "..." : isSent ? "SENT" : "ALERT"}</span>
                   </button>
+                </div>
+
+                {/* 5. Optional Collapsible Rules Details */}
+                <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 6 }}>
+                  <button
+                    onClick={() => toggleDetails(opp.id)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: T.textMuted,
+                      cursor: "pointer",
+                      fontSize: 10,
+                      fontFamily: T.fontSans,
+                      padding: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    <span>{isExpanded ? "▲ ซ่อนรายละเอียดกฎ" : "▼ ดูผลตรวจกฎความปลอดภัย (6 ข้อ)"}</span>
+                  </button>
+
+                  {isExpanded && (
+                    <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4, background: T.bg0, padding: 8, borderRadius: 6 }}>
+                      {evaluation.checks.map((chk, i) => (
+                        <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 10, fontFamily: T.fontSans }}>
+                          <span style={{ color: T.textSecondary }}>{chk.icon} {chk.rule}:</span>
+                          <span style={{
+                            color: chk.status === "PASS" ? T.green : chk.status === "WARNING" ? T.amber : T.red,
+                            fontFamily: T.font,
+                          }}>
+                            {chk.message}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -831,3 +523,4 @@ export function ScannerTab({
     </div>
   );
 }
+
