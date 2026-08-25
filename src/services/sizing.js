@@ -125,7 +125,7 @@ export function calculatePositionSize(accountInfo, opp, btcPrice, sizeMultiplier
   const perTradeMax = hasRealAccount ? equity * PER_TRADE_PCT : 0;
 
   // ─── Margin estimation per 1 BTC ──────────────────────────────────────────
-  const isSingleLeg = opp.strategy === "SINGLE_PUT" || opp.strategy === "SINGLE_CALL";
+  const isSingleLeg = opp.strategy === "SINGLE_PUT" || opp.strategy === "SINGLE_CALL" || opp.strategy === "SHORT_PUT";
   const marginPerBtc = btcPrice * (isSingleLeg ? 0.15 : 0.20);
   const totalPremiumPerBtc = opp.totalPremium || opp.markPrice || 0;
   const totalThetaPerBtc = opp.totalTheta || Math.abs(opp.theta || 0);

@@ -32,6 +32,52 @@ export default async function handler(req, res) {
     message = "✅ *BTC Options Desk* เชื่อมต่อสำเร็จแล้วครับ!";
   }
 
+  else if (type === "short_put_signal" || (type === "signal" && data.strategy === "SHORT_PUT")) {
+    const d = data;
+    message = `🟢 *ENTRY SIGNAL — BTC Bullish Short Put* ⭐
+
+📅 *Expiry:* ${d.expiry} (${d.dte} วัน)
+₿ *BTC Spot:* $${Number(d.btcPrice).toLocaleString()}
+📊 *Market IV:* ${d.ivRank || d.avgIV}%
+
+📍 *Short Put:*
+  • Strike: *$${Number(d.putStrike || d.strike).toLocaleString()}*
+  • Delta: \`${d.putDelta || d.delta}\` | IV: ${d.putIV || d.iv}%
+  • Mark Price: $${d.putMark || d.markPrice || d.totalPremium}
+  • ระยะปลอดภัย (Buffer): *${d.putDistancePct}%* จากราคาปัจจุบัน
+
+💰 *Premium รับ:* ~$${d.totalPremium} USD / 1 BTC
+⏱ *Theta Decay:* +$${d.totalTheta}/วัน
+🛡️ *Breakeven Price:* $${Number(d.breakevenLow).toLocaleString()}
+
+💡 *เหตุผล:* ตลาด Bullish + IV สูง (${d.ivRank}%) ขาย Put เก็บ Premium สูงโดยไม่มี Upside Risk
+⚡ _เปิด Binance Options แล้วพิจารณาเข้าตามวินัยครับ_`;
+  }
+
+  else if (type === "skewed_strangle_signal" || (type === "signal" && data.strategy === "SKEWED_STRANGLE")) {
+    const d = data;
+    message = `⚡ *ENTRY SIGNAL — BTC Skewed Strangle (Bullish)*
+
+📅 *Expiry:* ${d.expiry} (${d.dte} วัน)
+₿ *BTC Spot:* $${Number(d.btcPrice).toLocaleString()}
+📊 *Market IV:* ${d.ivRank || d.avgIV}%
+
+📍 *Short Put:*
+  • Strike: *$${Number(d.putStrike).toLocaleString()}*
+  • Delta: \`${d.putDelta}\` | IV: ${d.putIV}%
+
+📍 *Wide Short Call:*
+  • Strike: *$${Number(d.callStrike).toLocaleString()}* (Buffer +${d.callDistancePct}%)
+  • Delta: \`+${d.callDelta}\` (OTM กว้างพิเศษ)
+
+💰 *รวม Premium รับ:* ~$${d.totalPremium} / 1 BTC
+⏱ *Theta Decay:* +$${d.totalTheta}/วัน
+🛡️ *Safe Zone:* $${Number(d.breakevenLow).toLocaleString()} — $${Number(d.breakevenHigh).toLocaleString()}
+
+💡 *เหตุผล:* กลยุทธ์เอียงข้าง Bullish ขยายขอบเขต Short Call กว้างพิเศษเพื่อรับเทรนด์
+⚡ _เปิด Binance Options แล้วพิจารณาเข้าตามวินัยครับ_`;
+  }
+
   else if (type === "strangle_signal" || (type === "signal" && data.strategy === "STRANGLE")) {
     // data: { putStrike, putDelta, putIV, putMark, callStrike, callDelta, callIV, callMark, expiry, dte, btcPrice, totalPremium, totalTheta, breakevenLow, breakevenHigh, ivRank }
     const d = data;
@@ -56,7 +102,7 @@ export default async function handler(req, res) {
 🛡️ *Safe Zone (Breakeven):*
   $${Number(d.breakevenLow).toLocaleString()} — $${Number(d.breakevenHigh).toLocaleString()}
 
-💡 *เหตุผล:* เข้าเกณฑ์ Delta (Call 0.15-0.20, Put 0.20-0.25) และ DTE ตามกฎ Entry
+💡 *เหตุผล:* เข้าเกณฑ์ Delta (Call 0.15-0.20, Put 0.15-0.20) และ DTE ตามกฎ Entry
 ⚡ _เปิด Binance Options แล้วพิจารณาเข้าตามวินัยครับ_`;
   }
 

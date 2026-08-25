@@ -1,13 +1,15 @@
-// ─── Rules Engine v2.0 ──────────────────────────────────────────────────────
-// Evaluates Entry, Risk, and Management rules strictly according to STRATEGY_CONFIG v2.0
-// Produces transparent machine-readable decisions and human-readable feedback.
+// ─── Rules Engine v2.1 (Adaptive Multi-Strategy) ──────────────────────────────
+// Evaluates Entry, Risk, and Management rules according to Strategy Types:
+// 1. SHORT_PUT (Bullish High-IV Regime Strategy)
+// 2. SKEWED_STRANGLE (Bullish Skewed Strangle)
+// 3. STRANGLE (Standard Delta-Neutral Strangle)
 
 import { STRATEGY_CONFIG } from "../config/strategyConfig.js";
 
 /**
- * Evaluates an entry opportunity against all v2.0 strategy rules.
+ * Evaluates an entry opportunity against strategy rules according to its strategy type.
  *
- * @param {object} opp - The Strangle opportunity object
+ * @param {object} opp - The opportunity object (SHORT_PUT, SKEWED_STRANGLE, or STRANGLE)
  * @param {object} marketContext - { btcPrice, change24h, ma20, distFromMA20, ivRank, ivPercentile }
  * @param {object} accountInfo - { equity, marginUsed, availableBalance }
  * @param {Array} currentPositions - List of currently open positions
@@ -21,16 +23,20 @@ export function evaluateEntryRules(opp, marketContext = {}, accountInfo = null, 
   let hasWarning = false;
   let sizeMultiplier = 1.0;
 
+  const strategy = opp.strategy || "STRANGLE";
+  const isShortPut = strategy === "SHORT_PUT";
+  const isSkewed = strategy === "SKEWED_STRANGLE";
+
   // ── 0. Portfolio Holding Check ──────────────────────────────────────────
   if (opp.isFullyHeld) {
     isBlocked = true;
     checks.push({
       rule: "Portfolio Holding",
       status: "BLOCKED",
-      message: "ถือคู่นี้ในพอร์ตครบทั้ง 2 ขาแล้ว",
+      message: isShortPut ? "ถือสัญญานี้ในพอร์ตแล้ว" : "ถือคู่นี้ในพอร์ตครบทั้ง 2 ขาแล้ว",
       icon: "❌",
     });
-    reasons.push("❌ คุณถือสัญญาคู่นี้ในพอร์ตอยู่แล้ว (No Double Entry)");
+    reasons.push(isShortPut ? "❌ คุณถือสัญญานี้ในพอร์ตอยู่แล้ว (No Double Entry)" : "❌ คุณถือสัญญาคู่นี้ในพอร์ตอยู่แล้ว (No Double Entry)");
   } else if (opp.isPartiallyHeld) {
     hasWarning = true;
     checks.push({
@@ -89,30 +95,59 @@ export function evaluateEntryRules(opp, marketContext = {}, accountInfo = null, 
   }
 
   // ── 2. Call Delta Check ─────────────────────────────────────────────────
-  const callDelta = Math.abs(Number(opp.callDelta));
-  if (callDelta > cfg.delta.call.maxEntry) {
-    isBlocked = true;
-    checks.push({
-      rule: "Short Call Delta",
-      status: "BLOCKED",
-      message: `Call Delta = +${callDelta.toFixed(2)} (> ${cfg.delta.call.maxEntry})`,
-      icon: "❌",
-    });
-    reasons.push(`❌ Call Delta = +${callDelta.toFixed(2)} (เกินเพดานสูงสุด ${cfg.delta.call.maxEntry})`);
-  } else if (callDelta >= cfg.delta.call.preferredMin && callDelta <= cfg.delta.call.preferredMax) {
+  if (isShortPut) {
     checks.push({
       rule: "Short Call Delta",
       status: "PASS",
-      message: `Call Delta = +${callDelta.toFixed(2)} (ตรงเกณฑ์ Preferred 0.15–0.20)`,
+      message: "ไม่มี Short Call (ไม่มี Upside Risk ในตลาดขาขึ้น)",
       icon: "✅",
     });
+  } else if (isSkewed) {
+    const callDelta = Math.abs(Number(opp.callDelta));
+    if (callDelta > 0.14) {
+      isBlocked = true;
+      checks.push({
+        rule: "Short Call Delta",
+        status: "BLOCKED",
+        message: `Call Delta = +${callDelta.toFixed(2)} (> 0.14 สำหรับ Skewed Strangle)`,
+        icon: "❌",
+      });
+      reasons.push(`❌ Call Delta = +${callDelta.toFixed(2)} (เกินเกณฑ์ Skewed Strangle 0.08–0.12)`);
+    } else {
+      checks.push({
+        rule: "Short Call Delta",
+        status: "PASS",
+        message: `Call Delta = +${callDelta.toFixed(2)} (ตรงเกณฑ์ Wide OTM Buffer)`,
+        icon: "✅",
+      });
+    }
   } else {
-    checks.push({
-      rule: "Short Call Delta",
-      status: "PASS",
-      message: `Call Delta = +${callDelta.toFixed(2)} (ผ่านเกณฑ์ <= 0.20)`,
-      icon: "✅",
-    });
+    // Standard Strangle
+    const callDelta = Math.abs(Number(opp.callDelta));
+    if (callDelta > cfg.delta.call.maxEntry) {
+      isBlocked = true;
+      checks.push({
+        rule: "Short Call Delta",
+        status: "BLOCKED",
+        message: `Call Delta = +${callDelta.toFixed(2)} (> ${cfg.delta.call.maxEntry})`,
+        icon: "❌",
+      });
+      reasons.push(`❌ Call Delta = +${callDelta.toFixed(2)} (เกินเพดานสูงสุด ${cfg.delta.call.maxEntry})`);
+    } else if (callDelta >= cfg.delta.call.preferredMin && callDelta <= cfg.delta.call.preferredMax) {
+      checks.push({
+        rule: "Short Call Delta",
+        status: "PASS",
+        message: `Call Delta = +${callDelta.toFixed(2)} (ตรงเกณฑ์ Preferred 0.15–0.20)`,
+        icon: "✅",
+      });
+    } else {
+      checks.push({
+        rule: "Short Call Delta",
+        status: "PASS",
+        message: `Call Delta = +${callDelta.toFixed(2)} (ผ่านเกณฑ์ <= 0.20)`,
+        icon: "✅",
+      });
+    }
   }
 
   // ── 3. Put Delta Check ──────────────────────────────────────────────────
@@ -160,63 +195,167 @@ export function evaluateEntryRules(opp, marketContext = {}, accountInfo = null, 
       checks.push({
         rule: "IV Rank Filter",
         status: "PASS",
-        message: `IV Rank = ${ivRank}% (>= ${cfg.iv.ivrMin}%)`,
+        message: `IV Rank = ${ivRank}% (>= ${cfg.iv.ivrMin}% พรีเมียมสูง คุ้มค่าเสี่ยง)`,
         icon: "✅",
       });
     }
   }
 
   // ── 5. Market Regime (Distance from MA20) ──────────────────────────────
-  const distFromMA20 = marketContext.distFromMA20 != null ? Math.abs(marketContext.distFromMA20) : null;
-  if (distFromMA20 != null) {
-    if (distFromMA20 > cfg.regime.extremeNoEntryPct) {
-      isBlocked = true;
-      checks.push({
-        rule: "Market Regime (MA20)",
-        status: "BLOCKED",
-        message: `BTC ห่างจาก MA20 = ${distFromMA20.toFixed(1)}% (> 10% Extreme Trend)`,
-        icon: "❌",
-      });
-      reasons.push(`❌ BTC ห่างจาก MA20 = ${distFromMA20.toFixed(1)}% (> 10% Strong Trend เสี่ยงโดนลาก)`);
-    } else if (distFromMA20 > cfg.regime.normalMaxPct) {
-      hasWarning = true;
-      sizeMultiplier *= cfg.regime.elevatedMaxPct > 0 ? 0.50 : 1.0;
-      checks.push({
-        rule: "Market Regime (MA20)",
-        status: "WARNING",
-        message: `BTC ห่างจาก MA20 = ${distFromMA20.toFixed(1)}% (7–10% Elevated Trend → ลด Size 50%)`,
-        icon: "⚠️",
-      });
-      reasons.push(`⚠️ BTC ห่างจาก MA20 = ${distFromMA20.toFixed(1)}% (Elevated Trend → ลด Size 50%)`);
+  const rawDistMA20 = marketContext.distFromMA20 != null ? marketContext.distFromMA20 : null;
+  const absDistMA20 = rawDistMA20 != null ? Math.abs(rawDistMA20) : null;
+
+  if (rawDistMA20 != null) {
+    if (isShortPut) {
+      // For Short Put: Upward trend is favorable (moves price away from Put strike).
+      if (rawDistMA20 > 20.0) {
+        hasWarning = true;
+        sizeMultiplier *= 0.50;
+        checks.push({
+          rule: "Market Regime (MA20)",
+          status: "WARNING",
+          message: `BTC เหนือ MA20 = +${rawDistMA20.toFixed(1)}% (พุ่งแรงมาก แนะนำลด Size 50% เผื่อ Pullback)`,
+          icon: "⚠️",
+        });
+        reasons.push(`⚠️ BTC วิ่งขึ้นสูงกว่า MA20 มาก (+${rawDistMA20.toFixed(1)}%) → ลด Position Size 50% เผื่อเกิดการย่อตัว`);
+      } else if (rawDistMA20 >= 0) {
+        checks.push({
+          rule: "Market Regime (MA20)",
+          status: "PASS",
+          message: `BTC เหนือ MA20 = +${rawDistMA20.toFixed(1)}% (ทิศทางขาขึ้น ปลอดภัยต่อ Short Put)`,
+          icon: "✅",
+        });
+      } else if (rawDistMA20 < -10.0) {
+        isBlocked = true;
+        checks.push({
+          rule: "Market Regime (MA20)",
+          status: "BLOCKED",
+          message: `BTC ต่ำกว่า MA20 = ${rawDistMA20.toFixed(1)}% (< -10% Downtrend กดดัน Put)`,
+          icon: "❌",
+        });
+        reasons.push(`❌ BTC อยู่ต่ำกว่า MA20 เกิน -10% (ทิศทางขาลง เสี่ยงเจาะ Put)`);
+      } else {
+        hasWarning = true;
+        sizeMultiplier *= 0.50;
+        checks.push({
+          rule: "Market Regime (MA20)",
+          status: "WARNING",
+          message: `BTC ต่ำกว่า MA20 = ${rawDistMA20.toFixed(1)}% (ลด Size 50%)`,
+          icon: "⚠️",
+        });
+        reasons.push(`⚠️ BTC อยู่ต่ำกว่า MA20 เล็กน้อย (${rawDistMA20.toFixed(1)}%) → ลด Size 50%`);
+      }
+    } else if (isSkewed) {
+      // Skewed Strangle: allows upward trend up to 14% without blocking
+      if (rawDistMA20 > 16.0) {
+        isBlocked = true;
+        checks.push({
+          rule: "Market Regime (MA20)",
+          status: "BLOCKED",
+          message: `BTC ห่างจาก MA20 = +${rawDistMA20.toFixed(1)}% (> 16% เสี่ยงทะลุแม้ Call จะไกล)`,
+          icon: "❌",
+        });
+        reasons.push(`❌ BTC ห่างจาก MA20 = +${rawDistMA20.toFixed(1)}% (สูงเกิน 16% แนะนำใช้ Bullish Short Put แทน)`);
+      } else if (absDistMA20 > 8.0) {
+        hasWarning = true;
+        sizeMultiplier *= 0.50;
+        checks.push({
+          rule: "Market Regime (MA20)",
+          status: "WARNING",
+          message: `BTC ห่างจาก MA20 = ${rawDistMA20.toFixed(1)}% (Elevated Skew → ลด Size 50%)`,
+          icon: "⚠️",
+        });
+        reasons.push(`⚠️ BTC ห่างจาก MA20 = ${rawDistMA20.toFixed(1)}% → ลด Size 50%`);
+      } else {
+        checks.push({
+          rule: "Market Regime (MA20)",
+          status: "PASS",
+          message: `BTC ห่างจาก MA20 = ${rawDistMA20.toFixed(1)}% (ผ่านเกณฑ์ Skewed Strangle)`,
+          icon: "✅",
+        });
+      }
     } else {
-      checks.push({
-        rule: "Market Regime (MA20)",
-        status: "PASS",
-        message: `BTC ห่างจาก MA20 = ${distFromMA20.toFixed(1)}% (<= 7% Normal Regime)`,
-        icon: "✅",
-      });
+      // Standard Strangle: strict Delta-Neutral Regime
+      if (absDistMA20 > cfg.regime.extremeNoEntryPct) {
+        isBlocked = true;
+        checks.push({
+          rule: "Market Regime (MA20)",
+          status: "BLOCKED",
+          message: `BTC ห่างจาก MA20 = ${absDistMA20.toFixed(1)}% (> 10% Extreme Trend เสี่ยงลาก Call)`,
+          icon: "❌",
+        });
+        reasons.push(`❌ BTC ห่างจาก MA20 = ${absDistMA20.toFixed(1)}% (> 10% แนะนำเปลี่ยนไปใช้ Bullish Short Put)`);
+      } else if (absDistMA20 > cfg.regime.normalMaxPct) {
+        hasWarning = true;
+        sizeMultiplier *= 0.50;
+        checks.push({
+          rule: "Market Regime (MA20)",
+          status: "WARNING",
+          message: `BTC ห่างจาก MA20 = ${absDistMA20.toFixed(1)}% (7–10% Elevated Trend → ลด Size 50%)`,
+          icon: "⚠️",
+        });
+        reasons.push(`⚠️ BTC ห่างจาก MA20 = ${absDistMA20.toFixed(1)}% (Elevated Trend → ลด Size 50%)`);
+      } else {
+        checks.push({
+          rule: "Market Regime (MA20)",
+          status: "PASS",
+          message: `BTC ห่างจาก MA20 = ${absDistMA20.toFixed(1)}% (<= 7% Normal Sideway)`,
+          icon: "✅",
+        });
+      }
     }
   }
 
   // ── 6. Daily Volatility Safety ──────────────────────────────────────────
-  const dailyMove = marketContext.change24h != null ? Math.abs(marketContext.change24h) : null;
+  const dailyMove = marketContext.change24h != null ? marketContext.change24h : null;
   if (dailyMove != null) {
-    if (dailyMove >= cfg.volatilitySafety.maxDailyMovePct) {
-      isBlocked = true;
-      checks.push({
-        rule: "Daily Volatility",
-        status: "BLOCKED",
-        message: `BTC 24h Move = ±${dailyMove.toFixed(1)}% (>= 5% Volatility Spike)`,
-        icon: "❌",
-      });
-      reasons.push(`❌ BTC แกว่งตัว 24h = ±${dailyMove.toFixed(1)}% (>= 5% ห้ามเปิด Position เพื่อความปลอดภัย)`);
+    if (isShortPut) {
+      if (dailyMove <= -cfg.volatilitySafety.maxDailyMovePct) {
+        isBlocked = true;
+        checks.push({
+          rule: "Daily Volatility",
+          status: "BLOCKED",
+          message: `BTC ร่วงลง 24h = ${dailyMove.toFixed(1)}% (<= -5% Flash Drop เสี่ยงต่อ Put)`,
+          icon: "❌",
+        });
+        reasons.push(`❌ BTC ทุบตัวลงแรงใน 24h = ${dailyMove.toFixed(1)}% (<= -5% ห้ามเปิด Put)`);
+      } else if (dailyMove >= cfg.volatilitySafety.maxDailyMovePct) {
+        hasWarning = true;
+        sizeMultiplier *= 0.75;
+        checks.push({
+          rule: "Daily Volatility",
+          status: "WARNING",
+          message: `BTC พุ่งขึ้น 24h = +${dailyMove.toFixed(1)}% (>= +5% พุ่งแรง ลด Size 25% เผื่อพักฐาน)`,
+          icon: "⚠️",
+        });
+        reasons.push(`⚠️ BTC พุ่งขึ้นใน 24h = +${dailyMove.toFixed(1)}% (ลด Size 25% เผื่อการพักฐาน)`);
+      } else {
+        checks.push({
+          rule: "Daily Volatility",
+          status: "PASS",
+          message: `BTC 24h Move = ${dailyMove >= 0 ? "+" : ""}${dailyMove}% (< ±5%)`,
+          icon: "✅",
+        });
+      }
     } else {
-      checks.push({
-        rule: "Daily Volatility",
-        status: "PASS",
-        message: `BTC 24h Move = ${marketContext.change24h >= 0 ? "+" : ""}${marketContext.change24h}% (< ±5%)`,
-        icon: "✅",
-      });
+      const absDailyMove = Math.abs(dailyMove);
+      if (absDailyMove >= cfg.volatilitySafety.maxDailyMovePct) {
+        isBlocked = true;
+        checks.push({
+          rule: "Daily Volatility",
+          status: "BLOCKED",
+          message: `BTC 24h Move = ±${absDailyMove.toFixed(1)}% (>= 5% Volatility Spike)`,
+          icon: "❌",
+        });
+        reasons.push(`❌ BTC แกว่งตัว 24h = ±${absDailyMove.toFixed(1)}% (>= 5% ห้ามเปิดเพื่อความปลอดภัย)`);
+      } else {
+        checks.push({
+          rule: "Daily Volatility",
+          status: "PASS",
+          message: `BTC 24h Move = ${dailyMove >= 0 ? "+" : ""}${dailyMove}% (< ±5%)`,
+          icon: "✅",
+        });
+      }
     }
   }
 

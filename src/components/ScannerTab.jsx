@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { T } from "../tokens.js";
 import { fmtUSD } from "../utils.js";
 import { Pill } from "./Pill.jsx";
@@ -6,15 +6,25 @@ import { sendTelegram } from "../services/alerts.js";
 import { calculatePositionSize } from "../services/sizing.js";
 import { evaluateEntryRules } from "../services/rulesEngine.js";
 
-export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}, accountInfo, currentPositions = [], onAnalyzeStrangle }) {
+export function ScannerTab({ opportunities = [], btcPrice, ivRank, marketContext = {}, accountInfo, currentPositions = [], onAnalyzeStrangle }) {
   const [sentMap, setSentMap] = useState({});
   const [selectedSize, setSelectedSize] = useState({}); // opp.id -> selected lot size
   const [expandedChecklist, setExpandedChecklist] = useState({}); // opp.id -> boolean
+  const [strategyFilter, setStrategyFilter] = useState("AUTO"); // "AUTO" | "SHORT_PUT" | "SKEWED_STRANGLE" | "STRANGLE" | "ALL"
+
+  const isBullishRegime = marketContext.distFromMA20 != null && marketContext.distFromMA20 > 7.0;
+  const isBearishRegime = marketContext.distFromMA20 != null && marketContext.distFromMA20 < -7.0;
+  const isSidewayRegime = !isBullishRegime && !isBearishRegime;
 
   const handleSendTelegram = async (opp) => {
     setSentMap(prev => ({ ...prev, [opp.id]: "sending" }));
     try {
-      await sendTelegram("strangle_signal", opp);
+      const signalType = opp.strategy === "SHORT_PUT"
+        ? "short_put_signal"
+        : opp.strategy === "SKEWED_STRANGLE"
+        ? "skewed_strangle_signal"
+        : "strangle_signal";
+      await sendTelegram(signalType, opp);
       setSentMap(prev => ({ ...prev, [opp.id]: "sent" }));
       setTimeout(() => {
         setSentMap(prev => ({ ...prev, [opp.id]: null }));
@@ -27,6 +37,20 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}
   const toggleChecklist = (id) => {
     setExpandedChecklist(prev => ({ ...prev, [id]: !prev[id] }));
   };
+
+  // Filter and sort opportunities based on selected tab / AUTO mode
+  const filteredOpps = useMemo(() => {
+    if (!Array.isArray(opportunities)) return [];
+    if (strategyFilter === "ALL") return opportunities;
+    if (strategyFilter === "AUTO") {
+      if (isBullishRegime) {
+        // Prioritize Short Put and Skewed Strangle in Bullish market
+        return opportunities.filter(o => o.strategy === "SHORT_PUT" || o.strategy === "SKEWED_STRANGLE");
+      }
+      return opportunities.filter(o => o.strategy === "STRANGLE" || o.strategy === "SHORT_PUT");
+    }
+    return opportunities.filter(o => o.strategy === strategyFilter);
+  }, [opportunities, strategyFilter, isBullishRegime]);
 
   return (
     <div style={{ padding: "0 24px 32px", display: "flex", flexDirection: "column", gap: 20 }}>
@@ -82,10 +106,14 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}
         </div>
       )}
 
-      {/* Criteria Engine Banner */}
+      {/* Market Regime Advisory Banner */}
       <div style={{
-        background: T.bg2,
-        border: `1px solid ${T.border}`,
+        background: isBullishRegime
+          ? `linear-gradient(135deg, #064e3b33, #022c2222)`
+          : isBearishRegime
+          ? `linear-gradient(135deg, #7f1d1d33, #450a0a22)`
+          : T.bg2,
+        border: `1px solid ${isBullishRegime ? T.greenMid : isBearishRegime ? T.red + "44" : T.border}`,
         borderRadius: 12,
         padding: "16px 20px",
         display: "flex",
@@ -93,38 +121,101 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}
         alignItems: "center",
         flexWrap: "wrap",
         gap: 16,
+        boxShadow: isBullishRegime ? `0 4px 20px ${T.green}15` : "none",
       }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-            <span style={{ fontSize: 14 }}>🎯</span>
-            <span style={{ color: T.green, fontWeight: 800, fontSize: 13, letterSpacing: 1.5, fontFamily: T.fontSans }}>
-              SHORT STRANGLE ENTRY SCANNER v2.0
+            <span style={{ fontSize: 16 }}>{isBullishRegime ? "🚀" : isBearishRegime ? "🐻" : "🎯"}</span>
+            <span style={{
+              color: isBullishRegime ? T.green : isBearishRegime ? T.red : T.blue,
+              fontWeight: 800, fontSize: 13, letterSpacing: 1.5, fontFamily: T.fontSans,
+            }}>
+              {isBullishRegime
+                ? `MARKET REGIME: STRONG BULLISH (+${marketContext.distFromMA20}% จาก MA20 | IVR ${marketContext.ivRank ?? ivRank}%)`
+                : isBearishRegime
+                ? `MARKET REGIME: BEARISH (${marketContext.distFromMA20}% จาก MA20)`
+                : "MARKET REGIME: SIDEWAY / NORMAL RANGE"}
             </span>
           </div>
-          <div style={{ color: T.textSecondary, fontSize: 12, fontFamily: T.fontSans }}>
-            สแกนหาคู่สัญญาจาก Binance Options ตามเกณฑ์ Delta (0.15–0.20), DTE (18–25 วัน), IV Rank (≥30%) อัตโนมัติ
+          <div style={{ color: T.textSecondary, fontSize: 12, fontFamily: T.fontSans, lineHeight: 1.5 }}>
+            {isBullishRegime ? (
+              <span>
+                💡 ตลาดกำลังมี Momentum ขาขึ้นแรง + ค่าความผันผวนสูง (High IV) แนะนำใช้กลยุทธ์ <strong style={{ color: T.green }}>Bullish Short Put</strong> หรือ <strong style={{ color: T.blue }}>Skewed Strangle</strong> เพื่อเก็บค่าพรีเมียมแพงโดยตัดความเสี่ยง Short Call โดนลาก
+              </span>
+            ) : isBearishRegime ? (
+              <span>
+                ⚠️ ตลาดหลุดต่ำกว่าเส้นค่าเฉลี่ย 20 วัน ระมัดระวังการเปิด Short Put และติดตาม Stop Loss อย่างใกล้ชิด
+              </span>
+            ) : (
+              <span>
+                สแกนหาคู่สัญญา Delta-Neutral (0.15–0.20), DTE 18–25 วัน ตามเกณฑ์ Short Strangle v2.0
+              </span>
+            )}
           </div>
         </div>
 
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <Pill color={T.green}>DTE 18–25d ★ PREFERRED</Pill>
-          <Pill color={T.amber}>PUT Δ 0.15~0.20</Pill>
-          <Pill color={T.blue}>CALL Δ 0.15~0.20</Pill>
+          {isBullishRegime && <Pill color={T.green}>⭐ แนะนำ: BULLISH SHORT PUT</Pill>}
+          <Pill color={T.amber}>DTE 18–25d</Pill>
           <Pill color={T.purple}>IVR ≥ 30%</Pill>
+          <Pill color={T.blue}>DIST MA20: {marketContext.distFromMA20 != null ? `${marketContext.distFromMA20 > 0 ? "+" : ""}${marketContext.distFromMA20}%` : "-"}</Pill>
         </div>
       </div>
 
-      {opportunities.length === 0 ? (
+      {/* Strategy Filter Tabs */}
+      <div style={{
+        display: "flex",
+        gap: 8,
+        flexWrap: "wrap",
+        background: T.bg1,
+        padding: 6,
+        borderRadius: 10,
+        border: `1px solid ${T.border}`,
+      }}>
+        {[
+          { key: "AUTO", label: `🔥 แนะนำตามสภาวะตลาด (AUTO)${isBullishRegime ? " — BULLISH" : ""}`, color: T.green },
+          { key: "SHORT_PUT", label: "🟢 BULLISH SHORT PUT ⭐", color: T.green },
+          { key: "SKEWED_STRANGLE", label: "⚡ SKEWED STRANGLE", color: T.blue },
+          { key: "STRANGLE", label: "⚖️ SHORT STRANGLE (Sideway)", color: T.purple },
+          { key: "ALL", label: `ทั้งหมด (${opportunities.length})`, color: T.textSecondary },
+        ].map(tab => {
+          const isActive = strategyFilter === tab.key;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setStrategyFilter(tab.key)}
+              style={{
+                padding: "8px 16px",
+                borderRadius: 8,
+                border: `1px solid ${isActive ? tab.color : "transparent"}`,
+                background: isActive ? `${tab.color}18` : "transparent",
+                color: isActive ? tab.color : T.textSecondary,
+                fontFamily: T.fontSans,
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+              }}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Opportunities List */}
+      {filteredOpps.length === 0 ? (
         <div style={{ padding: 60, textAlign: "center", color: T.textMuted, fontFamily: T.fontSans, fontSize: 13, background: T.bg1, borderRadius: 12, border: `1px solid ${T.border}` }}>
-          ⏳ กำลังสแกนตลาด หรือยังไม่พบคู่สัญญาที่เข้าเกณฑ์ Delta / DTE ในขณะนี้...
+          ⏳ กำลังสแกนตลาด หรือไม่พบคู่สัญญาในหมวดนี้ที่เข้าเกณฑ์ในขณะนี้...
         </div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(440px, 1fr))", gap: 18 }}>
-          {opportunities.map((opp) => {
+          {filteredOpps.map((opp) => {
             const isSent = sentMap[opp.id] === "sent";
             const isSending = sentMap[opp.id] === "sending";
+            const isShortPut = opp.strategy === "SHORT_PUT";
 
-            // Run v2.0 Rules Engine Evaluation
+            // Run Rules Engine Evaluation
             const evaluation = evaluateEntryRules(opp, marketContext, accountInfo, currentPositions);
             const sizing = calculatePositionSize(accountInfo, opp, btcPrice, evaluation.sizeMultiplier);
             const chosenSize = selectedSize[opp.id] ?? (sizing.defaultLot?.size ?? 0.01);
@@ -134,14 +225,14 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}
             return (
               <div key={opp.id} style={{
                 background: `linear-gradient(180deg, ${T.bg1}, ${T.bg0})`,
-                border: `1px solid ${evaluation.isBlocked ? T.red + "35" : opp.isPreferredDTE ? T.greenMid : T.border}`,
+                border: `1px solid ${evaluation.isBlocked ? T.red + "35" : evaluation.isPassed ? (opp.badgeColor || T.greenMid) : T.border}`,
                 borderRadius: 14,
                 padding: 20,
                 display: "flex",
                 flexDirection: "column",
                 gap: 16,
-                boxShadow: opp.isPreferredDTE && !evaluation.isBlocked
-                  ? `0 6px 24px rgba(0,0,0,0.3), 0 0 25px ${T.green}10`
+                boxShadow: evaluation.isPassed
+                  ? `0 6px 24px rgba(0,0,0,0.3), 0 0 25px ${(opp.badgeColor || T.green)}15`
                   : "0 4px 16px rgba(0,0,0,0.2)",
                 position: "relative",
                 transition: "border 0.2s ease",
@@ -149,8 +240,11 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}
                 {/* Card Top */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${T.border}`, paddingBottom: 12 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <span style={{ color: T.textPrimary, fontFamily: T.fontSans, fontWeight: 700, fontSize: 15 }}>
-                      📅 {opp.expiry}
+                    <Pill color={opp.badgeColor || T.green}>
+                      {opp.badgeText || opp.strategyName || "STRATEGY"}
+                    </Pill>
+                    <span style={{ color: T.textPrimary, fontFamily: T.fontSans, fontWeight: 700, fontSize: 14 }}>
+                      📅 วันหมดอายุ (Expiry): {opp.expiry}
                     </span>
                     <Pill color={opp.isPreferredDTE ? T.green : opp.isIdealDTE ? T.blue : T.textSecondary}>
                       {opp.dte} วัน {opp.isPreferredDTE ? "★ PREFERRED" : opp.isIdealDTE ? "IDEAL" : ""}
@@ -206,7 +300,7 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}
                         cursor: "pointer", fontFamily: T.fontSans, fontSize: 11, textDecoration: "underline",
                       }}
                     >
-                      {isChecklistOpen ? "ซ่อน Checklist ▲" : "ดู Checklist (10 กฎ) ▼"}
+                      {isChecklistOpen ? "ซ่อน Checklist ▲" : "ดู Checklist (กฎความปลอดภัย) ▼"}
                     </button>
                   </div>
 
@@ -219,7 +313,7 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}
                     </div>
                   )}
 
-                  {/* Expanded 10-rule Checklist */}
+                  {/* Expanded Checklist */}
                   {isChecklistOpen && (
                     <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}`, display: "flex", flexDirection: "column", gap: 6 }}>
                       {evaluation.checks.map((chk, i) => (
@@ -237,53 +331,109 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}
                   )}
                 </div>
 
-                {/* Two Legs */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  {/* Put Leg */}
+                {/* Strategy Legs Display */}
+                {isShortPut ? (
+                  /* Single Leg: Short Put Card */
                   <div style={{
-                    background: T.bg2, border: `1px solid ${T.amber}28`,
-                    borderLeft: `3px solid ${T.amber}`, borderRadius: 8, padding: 12,
+                    background: T.bg2,
+                    border: `1px solid ${T.green}28`,
+                    borderLeft: `4px solid ${T.green}`,
+                    borderRadius: 10,
+                    padding: 16,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 12,
                   }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                      <span style={{ color: T.amber, fontWeight: 700, fontSize: 11, letterSpacing: 1, fontFamily: T.fontSans }}>SHORT PUT</span>
-                      <span style={{ color: T.textSecondary, fontSize: 10, fontFamily: T.font }}>-{opp.putDistancePct}%</span>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div>
+                        <div style={{ color: T.green, fontWeight: 800, fontSize: 12, letterSpacing: 1, fontFamily: T.fontSans }}>
+                          SHORT PUT STRIKE
+                        </div>
+                        <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 22, fontWeight: 800, marginTop: 2 }}>
+                          {fmtUSD(opp.putStrike)}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ color: T.textSecondary, fontSize: 10, fontFamily: T.fontSans }}>ระยะห่างปลอดภัย (SAFETY BUFFER)</div>
+                        <div style={{ color: T.green, fontFamily: T.font, fontSize: 16, fontWeight: 800 }}>
+                          -{opp.putDistancePct}%
+                        </div>
+                        <div style={{ color: T.textMuted, fontSize: 9, fontFamily: T.fontSans }}>ต่ำกว่า Spot $80k</div>
+                      </div>
                     </div>
-                    <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 17, fontWeight: 800 }}>
-                      {fmtUSD(opp.putStrike)}
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 11, color: T.textSecondary, fontFamily: T.font }}>
-                      <span>Delta: <strong style={{ color: T.amber }}>{opp.putDelta}</strong></span>
-                      <span>Mark: <strong style={{ color: T.green }}>${opp.putMark}</strong></span>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, background: T.bg1, padding: "8px 12px", borderRadius: 6, fontSize: 11, fontFamily: T.font }}>
+                      <div>
+                        <span style={{ color: T.textSecondary, fontSize: 9, display: "block" }}>DELTA</span>
+                        <strong style={{ color: T.amber }}>{opp.putDelta}</strong>
+                      </div>
+                      <div>
+                        <span style={{ color: T.textSecondary, fontSize: 9, display: "block" }}>IV</span>
+                        <strong style={{ color: T.purple }}>{opp.putIV}%</strong>
+                      </div>
+                      <div>
+                        <span style={{ color: T.textSecondary, fontSize: 9, display: "block" }}>MARK PRICE</span>
+                        <strong style={{ color: T.green }}>${opp.putMark}</strong>
+                      </div>
+                      <div>
+                        <span style={{ color: T.textSecondary, fontSize: 9, display: "block" }}>THETA/วัน</span>
+                        <strong style={{ color: T.green }}>+${opp.totalTheta}</strong>
+                      </div>
                     </div>
                   </div>
+                ) : (
+                  /* Two Legs: Strangle / Skewed Strangle */
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    {/* Put Leg */}
+                    <div style={{
+                      background: T.bg2, border: `1px solid ${T.amber}28`,
+                      borderLeft: `3px solid ${T.amber}`, borderRadius: 8, padding: 12,
+                    }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                        <span style={{ color: T.amber, fontWeight: 700, fontSize: 11, letterSpacing: 1, fontFamily: T.fontSans }}>SHORT PUT</span>
+                        <span style={{ color: T.textSecondary, fontSize: 10, fontFamily: T.font }}>-{opp.putDistancePct}%</span>
+                      </div>
+                      <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 17, fontWeight: 800 }}>
+                        {fmtUSD(opp.putStrike)}
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 11, color: T.textSecondary, fontFamily: T.font }}>
+                        <span>Delta: <strong style={{ color: T.amber }}>{opp.putDelta}</strong></span>
+                        <span>Mark: <strong style={{ color: T.green }}>${opp.putMark}</strong></span>
+                      </div>
+                    </div>
 
-                  {/* Call Leg */}
-                  <div style={{
-                    background: T.bg2, border: `1px solid ${T.blue}28`,
-                    borderLeft: `3px solid ${T.blue}`, borderRadius: 8, padding: 12,
-                  }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                      <span style={{ color: T.blue, fontWeight: 700, fontSize: 11, letterSpacing: 1, fontFamily: T.fontSans }}>SHORT CALL</span>
-                      <span style={{ color: T.textSecondary, fontSize: 10, fontFamily: T.font }}>+{opp.callDistancePct}%</span>
-                    </div>
-                    <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 17, fontWeight: 800 }}>
-                      {fmtUSD(opp.callStrike)}
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 11, color: T.textSecondary, fontFamily: T.font }}>
-                      <span>Delta: <strong style={{ color: T.blue }}>+{opp.callDelta}</strong></span>
-                      <span>Mark: <strong style={{ color: T.green }}>${opp.callMark}</strong></span>
+                    {/* Call Leg */}
+                    <div style={{
+                      background: T.bg2, border: `1px solid ${T.blue}28`,
+                      borderLeft: `3px solid ${T.blue}`, borderRadius: 8, padding: 12,
+                    }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                        <span style={{ color: T.blue, fontWeight: 700, fontSize: 11, letterSpacing: 1, fontFamily: T.fontSans }}>
+                          {opp.strategy === "SKEWED_STRANGLE" ? "WIDE SHORT CALL" : "SHORT CALL"}
+                        </span>
+                        <span style={{ color: T.textSecondary, fontSize: 10, fontFamily: T.font }}>+{opp.callDistancePct}%</span>
+                      </div>
+                      <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 17, fontWeight: 800 }}>
+                        {fmtUSD(opp.callStrike)}
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 11, color: T.textSecondary, fontFamily: T.font }}>
+                        <span>Delta: <strong style={{ color: T.blue }}>+{opp.callDelta}</strong></span>
+                        <span>Mark: <strong style={{ color: T.green }}>${opp.callMark}</strong></span>
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
 
-                {/* Strangle Summary */}
+                {/* Strategy Summary Metrics */}
                 <div style={{
                   background: T.bg2, borderRadius: 8, padding: "12px 14px",
                   display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10,
                   border: `1px solid ${T.border}`,
                 }}>
                   <div>
-                    <div style={{ color: T.textSecondary, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>PREMIUM รวม</div>
+                    <div style={{ color: T.textSecondary, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>
+                      {isShortPut ? "PREMIUM รับสุทธิ" : "PREMIUM รวม"}
+                    </div>
                     <div style={{ color: T.green, fontFamily: T.font, fontSize: 16, fontWeight: 800 }}>
                       +${opp.totalPremium} <span style={{ fontSize: 10, color: T.textSecondary, fontWeight: 400 }}>/ 1 BTC</span>
                     </div>
@@ -297,14 +447,18 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}
                   </div>
 
                   <div style={{ textAlign: "right" }}>
-                    <div style={{ color: T.textSecondary, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>SAFE ZONE (BREAKEVEN)</div>
+                    <div style={{ color: T.textSecondary, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>
+                      {isShortPut ? "BREAKEVEN PRICE" : "SAFE ZONE (BREAKEVEN)"}
+                    </div>
                     <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 12, fontWeight: 600 }}>
-                      ${opp.breakevenLow?.toLocaleString()} – ${opp.breakevenHigh?.toLocaleString()}
+                      {isShortPut
+                        ? `$${opp.breakevenLow?.toLocaleString()}`
+                        : `$${opp.breakevenLow?.toLocaleString()} – $${opp.breakevenHigh?.toLocaleString()}`}
                     </div>
                   </div>
                 </div>
 
-                {/* ─── Position Sizing Section v2.0 ─────────────────────────────── */}
+                {/* Position Sizing Section */}
                 {sizing.available && (
                   <div style={{
                     background: `linear-gradient(135deg, ${T.bg2}, ${T.bg3})`,
@@ -322,7 +476,7 @@ export function ScannerTab({ opportunities, btcPrice, ivRank, marketContext = {}
                       )}
                     </div>
 
-                    {/* Prominent Recommendation Callout */}
+                    {/* Recommendation Callout */}
                     <div style={{
                       background: evaluation.isBlocked
                         ? T.redDim

@@ -116,16 +116,21 @@ export default function App() {
         setConnError(typeof posData.error === "string" ? posData.error : JSON.stringify(posData.error));
       }
 
-      // ── Scan Entry Opportunities (Short Strangle Candidates) ──────────────
+      // ── Scan Entry Opportunities (Adaptive Multi-Strategy) ───────────────
       if (Array.isArray(marksData) && currentBtcPrice) {
-        const opps = scanEntryOpportunities(marksData, currentBtcPrice, currentIvRank, mappedPositions);
+        const opps = scanEntryOpportunities(marksData, currentBtcPrice, currentIvRank, mappedPositions, updatedMarketContext);
         setOpportunities(opps);
 
         // Auto-send Telegram Entry Signal when high-probability setup appears (skips already held positions)
         if (alertsEnabled && opps.length > 0) {
           const newEntrySignals = checkEntryAlerts(opps, alertedEntryIdsRef.current, updatedMarketContext, parsedAccount, mappedPositions);
           for (const signal of newEntrySignals) {
-            sendTelegram("strangle_signal", signal);
+            const signalType = signal.strategy === "SHORT_PUT"
+              ? "short_put_signal"
+              : signal.strategy === "SKEWED_STRANGLE"
+              ? "skewed_strangle_signal"
+              : "strangle_signal";
+            sendTelegram(signalType, signal);
           }
         }
       }
