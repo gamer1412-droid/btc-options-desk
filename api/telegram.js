@@ -329,12 +329,24 @@ export default async function handler(req, res) {
       payload.reply_markup = replyMarkup;
     }
 
-    const r = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    let r = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    const result = await r.json();
+    let result = await r.json();
+
+    // Fallback: if markdown parsing fails, retry with clean plain text
+    if (!result.ok && payload.parse_mode) {
+      payload.parse_mode = undefined;
+      r = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      result = await r.json();
+    }
+
     if (!result.ok) throw new Error(result.description);
     return res.status(200).json({ ok: true });
   } catch (err) {

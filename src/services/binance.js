@@ -42,9 +42,10 @@ export function mapBinancePosition(raw, mark = {}) {
   // markIV is a decimal fraction (0.65 = 65%)
   const iv = markIVRaw > 0 ? (markIVRaw <= 5 ? markIVRaw * 100 : markIVRaw) : 0;
 
-  const rawPnl = Number(raw.unrealizedPNL ?? raw.unrealizedPnL ?? raw.unrealizedPnl);
+  const rawPnlVal = raw.unrealizedPNL ?? raw.unrealizedPnL ?? raw.unrealizedPnl;
+  const rawPnl = rawPnlVal != null && rawPnlVal !== "" ? Number(rawPnlVal) : NaN;
   const calculatedPnl = side === "Short" ? (premium - currentPrice) : (currentPrice - premium);
-  const pnl = !isNaN(rawPnl) && rawPnl !== 0 ? Math.round(rawPnl * 100) / 100 : Math.round(calculatedPnl * 100) / 100;
+  const pnl = !isNaN(rawPnl) ? Math.round(rawPnl * 100) / 100 : Math.round(calculatedPnl * 100) / 100;
 
   const pos = {
     id: raw.symbol,
