@@ -5,22 +5,29 @@ import { mapBinancePosition } from "./services/binance.js";
 import { sendTelegram, checkAlerts, checkEntryAlerts } from "./services/alerts.js";
 import { scanEntryOpportunities } from "./services/scanner.js";
 import { parseAccountInfo, calculatePortfolioCapacity } from "./services/sizing.js";
+import { loadPaperTrades } from "./services/paperTrading.js";
+import { SoundFX } from "./services/soundFx.js";
+
 import { MetricCard } from "./components/MetricCard.jsx";
 import { Pill } from "./components/Pill.jsx";
 import { PositionRow, POSITION_GRID_COLS } from "./components/PositionRow.jsx";
 import { AnalysisPanel } from "./components/AnalysisPanel.jsx";
 import { ScannerTab } from "./components/ScannerTab.jsx";
 import { CapacityWidget } from "./components/CapacityWidget.jsx";
+import { LiveTickerTape } from "./components/LiveTickerTape.jsx";
+import { SentimentGauge } from "./components/SentimentGauge.jsx";
+import { PayoffSimulator } from "./components/PayoffSimulator.jsx";
+import { PaperTradingDrawer } from "./components/PaperTradingDrawer.jsx";
 
 const POLL_INTERVAL_MS = 15000; // refresh live data every 15 s
 
-// ─── Main App ─────────────────────────────────────────────────────────────────
+// ─── Main App (War Room Experience) ───────────────────────────────────────────
 export default function App() {
   const [positions, setPositions]               = useState([]);
   const [opportunities, setOpportunities]       = useState([]);
   const [btcPrice, setBtcPrice]                 = useState(null);
   const [marketContext, setMarketContext]       = useState({ price: null, change24h: 0, ma20: null, distFromMA20: 0, ivRank: null });
-  const [ivRank, setIvRank]                     = useState(null); // market-wide BTC IV (avg of ATM options)
+  const [ivRank, setIvRank]                     = useState(null);
   const [connError, setConnError]               = useState(null);
   const [loadingPositions, setLoadingPositions] = useState(true);
   const [lastSync, setLastSync]                 = useState(null);
@@ -29,8 +36,23 @@ export default function App() {
   const [telegramStatus, setTelegramStatus]     = useState(null); // "ok" | "error" | null
   const [alertsEnabled, setAlertsEnabled]       = useState(true);
   const [accountInfo, setAccountInfo]           = useState(null);
+  const [isMuted, setIsMuted]                   = useState(() => SoundFX.isMuted());
+  const [payoffSetup, setPayoffSetup]           = useState(null); // setup object for Payoff Simulator
+  const [paperModalOpen, setPaperModalOpen]     = useState(false);
+  const [paperCount, setPaperCount]             = useState(0);
+
   const alertedIdsRef = useRef(new Set());
   const alertedEntryIdsRef = useRef(new Set());
+
+  // Refresh active paper trades count
+  const refreshPaperCount = useCallback(() => {
+    const list = loadPaperTrades();
+    setPaperCount(list.filter(t => t.status === "OPEN").length);
+  }, []);
+
+  useEffect(() => {
+    refreshPaperCount();
+  }, [refreshPaperCount, paperModalOpen]);
 
   const fetchLiveData = useCallback(async () => {
     try {
@@ -97,6 +119,9 @@ export default function App() {
 
         if (alertsEnabled) {
           const triggered = checkAlerts(mappedPositions, alertedIdsRef.current);
+          if (triggered.length > 0) {
+            SoundFX.playWarningAlert();
+          }
           for (const { pos, reason } of triggered) {
             alertedIdsRef.current.add(pos.id);
             const pct = pos.premium > 0
@@ -121,9 +146,11 @@ export default function App() {
         const opps = scanEntryOpportunities(marksData, currentBtcPrice, currentIvRank, mappedPositions, updatedMarketContext);
         setOpportunities(opps);
 
-        // Auto-send Telegram Entry Signal when high-probability setup appears (skips already held positions)
         if (alertsEnabled && opps.length > 0) {
           const newEntrySignals = checkEntryAlerts(opps, alertedEntryIdsRef.current, updatedMarketContext, parsedAccount, mappedPositions);
+          if (newEntrySignals.length > 0) {
+            SoundFX.playSuccessChime();
+          }
           for (const signal of newEntrySignals) {
             const signalType = signal.strategy === "SHORT_PUT"
               ? "short_put_signal"
@@ -149,28 +176,55 @@ export default function App() {
     return () => clearInterval(timer);
   }, [fetchLiveData]);
 
+  // Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+      if (e.key === "1") setTab("positions");
+      else if (e.key === "2") setTab("scanner");
+      else if (e.key === "3") setTab("rules");
+      else if (e.key.toLowerCase() === "m") {
+        const muted = SoundFX.toggleMute();
+        setIsMuted(muted);
+      } else if (e.key.toLowerCase() === "p") {
+        setPaperModalOpen(v => !v);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   const totalPnl   = positions.reduce((s, p) => s + p.pnl, 0);
   const totalTheta = positions.reduce((s, p) => s + (Math.abs(p.theta) * (p.size || 1)), 0);
   const warnings   = positions.filter(p => p.status === "warning" || p.status === "danger").length;
   const capacity   = calculatePortfolioCapacity(accountInfo, positions, btcPrice, marketContext, opportunities);
 
   const tabStyle = (t) => ({
-    padding: "8px 18px",
+    padding: "10px 20px",
     cursor: "pointer",
     fontFamily: T.fontSans,
     fontSize: 12,
-    fontWeight: 700,
+    fontWeight: 800,
     letterSpacing: 1,
     border: "none",
     borderRadius: "8px 8px 0 0",
     background: tab === t ? `linear-gradient(180deg, ${T.bg2}, ${T.bg1})` : "transparent",
     color: tab === t ? T.green : T.textSecondary,
     borderBottom: tab === t ? `2px solid ${T.green}` : "2px solid transparent",
+    boxShadow: tab === t ? `0 -4px 15px rgba(0,240,168,0.12)` : "none",
     transition: "all 0.2s ease",
   });
 
   return (
     <div style={{ background: T.bg0, minHeight: "100vh", color: T.textPrimary, fontFamily: T.fontSans }}>
+
+      {/* ── Top Wall Street Live Ticker Tape ───────────────────────────────── */}
+      <LiveTickerTape
+        btcPrice={btcPrice}
+        marketContext={marketContext}
+        ivRank={ivRank}
+        topOpportunity={opportunities[0]}
+      />
 
       {/* ── Top Bar ─────────────────────────────────────────────────────────── */}
       <div style={{
@@ -182,40 +236,93 @@ export default function App() {
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{
-            width: 9, height: 9, borderRadius: "50%",
+            width: 10, height: 10, borderRadius: "50%",
             background: connError ? T.red : T.green,
-            boxShadow: `0 0 10px ${connError ? T.red : T.green}`,
+            boxShadow: `0 0 12px ${connError ? T.red : T.green}`,
+            animation: "neonPulse 2s infinite",
           }} />
-          <span style={{ color: T.textPrimary, fontWeight: 800, fontSize: 16, letterSpacing: 2, fontFamily: T.fontSans }}>
+          <span style={{ color: T.textPrimary, fontWeight: 900, fontSize: 17, letterSpacing: 2, fontFamily: T.fontSans }}>
             ⚡ BTC OPTIONS DESK
           </span>
           <span style={{
             background: connError ? T.redDim : T.greenDim,
             color: connError ? T.red : T.green,
             border: `1px solid ${connError ? T.red + "44" : T.greenMid}`,
-            borderRadius: 6, padding: "2px 8px", fontSize: 10, fontWeight: 700, letterSpacing: 1,
+            borderRadius: 6, padding: "2px 8px", fontSize: 10, fontWeight: 800, letterSpacing: 1,
           }}>
-            {connError ? "ERROR" : "PROD v2.0"}
+            {connError ? "OFFLINE" : "WAR ROOM v2.5"}
           </span>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           {lastSync && (
             <span style={{ color: T.textMuted, fontSize: 11, fontFamily: T.font }}>
               Sync: {lastSync.toLocaleTimeString("th-TH")}
             </span>
           )}
 
+          {/* Sound FX Mute/Unmute Toggle */}
+          <button
+            onClick={() => {
+              const muted = SoundFX.toggleMute();
+              setIsMuted(muted);
+              if (!muted) SoundFX.playSuccessChime();
+            }}
+            title="Toggle Cyber SFX (Hotkey: M)"
+            style={{
+              background: isMuted ? T.bg2 : T.greenDim,
+              border: `1px solid ${isMuted ? T.border : T.greenMid}`,
+              color: isMuted ? T.textMuted : T.green,
+              borderRadius: 6, padding: "5px 10px", cursor: "pointer",
+              fontFamily: T.fontSans, fontSize: 11, fontWeight: 700,
+              display: "flex", alignItems: "center", gap: 5,
+              transition: "all 0.2s ease",
+            }}
+          >
+            <span>{isMuted ? "🔇 SFX OFF" : "🔊 SFX ON"}</span>
+          </button>
+
+          {/* Paper Trading Sandbox Button */}
+          <button
+            onClick={() => {
+              SoundFX.playClick();
+              setPaperModalOpen(true);
+            }}
+            title="Open Paper Trading Sandbox (Hotkey: P)"
+            style={{
+              background: paperCount > 0 ? `linear-gradient(135deg, ${T.purpleDim}, ${T.bg2})` : T.bg2,
+              border: `1px solid ${paperCount > 0 ? T.purple : T.border}`,
+              color: paperCount > 0 ? T.purple : T.textSecondary,
+              borderRadius: 6, padding: "5px 10px", cursor: "pointer",
+              fontFamily: T.fontSans, fontSize: 11, fontWeight: 700,
+              display: "flex", alignItems: "center", gap: 6,
+              transition: "all 0.2s ease",
+            }}
+          >
+            <span>🧪 SANDBOX</span>
+            {paperCount > 0 && (
+              <span style={{
+                background: T.purple, color: "#05080c",
+                borderRadius: 10, padding: "1px 6px", fontSize: 9, fontWeight: 900,
+              }}>
+                {paperCount}
+              </span>
+            )}
+          </button>
+
           {/* Telegram alert toggle */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <button
               id="alerts-toggle"
-              onClick={() => setAlertsEnabled(v => !v)}
+              onClick={() => {
+                SoundFX.playClick();
+                setAlertsEnabled(v => !v);
+              }}
               style={{
                 background: alertsEnabled ? T.greenDim : T.bg2,
                 border: `1px solid ${alertsEnabled ? T.greenMid : T.border}`,
                 color: alertsEnabled ? T.green : T.textMuted,
-                borderRadius: 6, padding: "4px 10px", cursor: "pointer",
+                borderRadius: 6, padding: "5px 10px", cursor: "pointer",
                 fontFamily: T.fontSans, fontSize: 11, fontWeight: 700, letterSpacing: 0.5,
                 display: "flex", alignItems: "center", gap: 5,
                 transition: "all 0.2s ease",
@@ -228,18 +335,20 @@ export default function App() {
             <button
               id="telegram-test"
               onClick={async () => {
+                SoundFX.playClick();
                 const r = await fetch("/api/telegram", {
                   method: "POST", headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ type: "test" }),
                 });
                 const d = await r.json();
+                if (d.ok) SoundFX.playSuccessChime();
                 setTelegramStatus(d.ok ? "ok" : "error");
                 setTimeout(() => setTelegramStatus(null), 3000);
               }}
               style={{
                 background: T.bg2, border: `1px solid ${T.border}`,
                 color: telegramStatus === "ok" ? T.green : telegramStatus === "error" ? T.red : T.textSecondary,
-                borderRadius: 6, padding: "4px 10px", cursor: "pointer",
+                borderRadius: 6, padding: "5px 10px", cursor: "pointer",
                 fontFamily: T.fontSans, fontSize: 11, fontWeight: 600,
                 transition: "all 0.2s ease",
               }}
@@ -256,7 +365,7 @@ export default function App() {
                 </span>
               )}
             </div>
-            <div style={{ color: T.textPrimary, fontSize: 18, fontWeight: 800, fontFamily: T.font }}>
+            <div style={{ color: T.textPrimary, fontSize: 19, fontWeight: 900, fontFamily: T.font }}>
               {btcPrice ? fmtUSD(btcPrice, 0) : "—"}
             </div>
           </div>
@@ -273,14 +382,25 @@ export default function App() {
         </div>
       )}
 
-      {/* ── Metric Cards ─────────────────────────────────────────────────────── */}
-      <div style={{ display: "flex", gap: 12, padding: "16px 24px", flexWrap: "wrap" }}>
-        <MetricCard label="Account Equity" value={accountInfo ? fmtUSD(accountInfo.equity, 2) : "$0.00"} color={T.blue} sub={accountInfo ? `Margin ${accountInfo.marginPct}% / 30% Max` : "Binance Options"} />
-        <MetricCard label="Available Margin" value={accountInfo ? fmtUSD(accountInfo.availableBalance, 2) : "$0.00"} color={T.green} sub={accountInfo ? `Balance ${fmtUSD(accountInfo.balance, 2)}` : "พร้อมเทรด"} />
-        <MetricCard label="Unrealized P&L" value={`${totalPnl > 0 ? "+" : ""}${fmtUSD(totalPnl, 2)}`} color={pnlColor(totalPnl)} sub="รวมทุก position" />
-        <MetricCard label="Theta / Day" value={`+$${totalTheta < 1 ? totalTheta.toFixed(2) : totalTheta.toFixed(1)}`} color={T.green} sub="รายได้ต่อวัน" />
-        <MetricCard label="Open Positions" value={positions.length} color={T.blue} sub={`${positions.filter(p => p.status === "healthy").length} healthy`} />
-        <MetricCard label="Warnings" value={warnings} color={warnings > 0 ? T.amber : T.textMuted} sub={warnings > 0 ? "ต้องติดตาม" : "ทุก position ปกติ"} />
+      {/* ── Metric Cards & Speedometer Section ────────────────────────────────── */}
+      <div style={{ display: "flex", gap: 14, padding: "16px 24px", flexWrap: "wrap", alignItems: "stretch" }}>
+        <div style={{ flex: "2 1 540px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
+          <MetricCard label="Account Equity" value={accountInfo ? fmtUSD(accountInfo.equity, 2) : "$0.00"} color={T.blue} sub={accountInfo ? `Margin ${accountInfo.marginPct}% / 30% Max` : "Binance Options"} />
+          <MetricCard label="Available Margin" value={accountInfo ? fmtUSD(accountInfo.availableBalance, 2) : "$0.00"} color={T.green} sub={accountInfo ? `Balance ${fmtUSD(accountInfo.balance, 2)}` : "พร้อมเทรด"} />
+          <MetricCard label="Unrealized P&L" value={`${totalPnl > 0 ? "+" : ""}${fmtUSD(totalPnl, 2)}`} color={pnlColor(totalPnl)} sub="รวมทุก position" />
+          <MetricCard label="Theta / Day" value={`+$${totalTheta < 1 ? totalTheta.toFixed(2) : totalTheta.toFixed(1)}`} color={T.green} sub="รายได้ต่อวัน" />
+          <MetricCard label="Open Positions" value={positions.length} color={T.blue} sub={`${positions.filter(p => p.status === "healthy").length} healthy`} />
+          <MetricCard label="Risk Alerts" value={warnings} color={warnings > 0 ? T.red : T.textMuted} sub={warnings > 0 ? "ต้องตัดสินใจ" : "ทุก position ปลอดภัย"} />
+        </div>
+
+        {/* IV Rank & Market Volatility Speedometer */}
+        <div style={{ flex: "1 1 260px", minWidth: 260 }}>
+          <SentimentGauge
+            ivRank={ivRank || marketContext.ivRank || 45}
+            distFromMA20={marketContext.distFromMA20}
+            netDelta={positions.reduce((s, p) => s + (p.delta || 0) * (p.size || 1), 0)}
+          />
+        </div>
       </div>
 
       {/* ── Portfolio Capacity & Action Radar Widget ───────────────────────────── */}
@@ -290,18 +410,39 @@ export default function App() {
         </div>
       )}
 
-      {/* ── Tabs ────────────────────────────────────────────────────────────── */}
+      {/* ── Tabs Navigation ──────────────────────────────────────────────────── */}
       <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, marginLeft: 24, marginRight: 24, gap: 4 }}>
-        <button id="tab-positions" style={tabStyle("positions")} onClick={() => setTab("positions")}>
+        <button
+          id="tab-positions"
+          style={tabStyle("positions")}
+          onClick={() => {
+            SoundFX.playClick();
+            setTab("positions");
+          }}
+        >
           POSITIONS ({positions.length})
         </button>
 
-        <button id="tab-scanner" style={tabStyle("scanner")} onClick={() => setTab("scanner")}>
-          🎯 SCANNER {opportunities.length > 0 && `(${opportunities.length})`}
+        <button
+          id="tab-scanner"
+          style={tabStyle("scanner")}
+          onClick={() => {
+            SoundFX.playClick();
+            setTab("scanner");
+          }}
+        >
+          🎯 ALPHA SCANNER {opportunities.length > 0 && `(${opportunities.length})`}
         </button>
 
-        <button id="tab-rules" style={tabStyle("rules")} onClick={() => setTab("rules")}>
-          RULES v2.0
+        <button
+          id="tab-rules"
+          style={tabStyle("rules")}
+          onClick={() => {
+            SoundFX.playClick();
+            setTab("rules");
+          }}
+        >
+          🛡️ RULES v2.5
         </button>
       </div>
 
@@ -316,6 +457,8 @@ export default function App() {
             accountInfo={accountInfo}
             currentPositions={positions}
             onAnalyzeStrangle={setAnalyzing}
+            onOpenPayoff={(setup) => setPayoffSetup(setup)}
+            onOpenPaperTrade={() => refreshPaperCount()}
           />
         </div>
       )}
@@ -344,7 +487,11 @@ export default function App() {
                 {/* Position rows */}
                 <div style={{ minWidth: 690 }}>
                   {positions.map(pos => (
-                    <PositionRow key={pos.id} pos={pos} onAnalyze={setAnalyzing} />
+                    <PositionRow
+                      key={pos.id}
+                      pos={pos}
+                      onAnalyze={setAnalyzing}
+                    />
                   ))}
                 </div>
               </div>
@@ -356,8 +503,6 @@ export default function App() {
       {/* ── Rules Tab v2.0 ───────────────────────────────────────────────────── */}
       {tab === "rules" && (
         <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 20, maxWidth: 840 }}>
-
-          {/* Header Principle */}
           <div style={{ background: `linear-gradient(135deg, ${T.bg2}, ${T.bg1})`, border: `1px solid ${T.greenMid}`, borderRadius: 10, padding: 20 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
               <span style={{ fontSize: 16 }}>🛡️</span>
@@ -450,18 +595,6 @@ export default function App() {
                 "No Martingale / Revenge Trading: ห้าม Average Down หรือเพิ่ม Position เพื่อเอาคืน Loss ทุกกรณี",
               ],
             },
-            {
-              title: "8. POSITION STATE MACHINE (ลำดับสถานะของ Position)",
-              color: T.blue,
-              items: [
-                "NORMAL: ทุก Risk Metric อยู่ในเกณฑ์ปกติ (Delta < 0.35, DTE > 4)",
-                "WARNING: Delta ≥ 0.35 หรือ DTE ≤ 4 วัน (เริ่มเฝ้าระวัง)",
-                "DEFENSIVE: Delta ≥ 0.50 หรือ Strike Breach (เตรียม Close หรือ Roll)",
-                "ROLL_PENDING: Delta ≥ 0.65 (ต้องตัดสินใจ Close หรือ Roll 1 ครั้ง)",
-                "ROLLED: ใช้สิทธิ์ Roll ไปแล้ว 1 ครั้ง (ไม่มีสิทธิ์ Roll เพิ่ม)",
-                "EXIT: Close Position ทำกำไร (TP 50%) หรือตัดขาดทุน (Hard Stop 2x / DTE ≤ 2d)",
-              ],
-            },
           ].map(({ title, color, items }) => (
             <div key={title} style={{ background: T.bg2, border: `1px solid ${color}33`, borderLeft: `4px solid ${color}`, borderRadius: 8, padding: 18 }}>
               <div style={{ color, fontFamily: T.font, fontWeight: 700, fontSize: 12, letterSpacing: 1.5, marginBottom: 14 }}>{title}</div>
@@ -476,6 +609,23 @@ export default function App() {
         </div>
       )}
 
+      {/* ── Payoff Simulator Modal ─────────────────────────────────────────────── */}
+      {payoffSetup && (
+        <PayoffSimulator
+          setup={payoffSetup}
+          btcPrice={btcPrice}
+          onClose={() => setPayoffSetup(null)}
+        />
+      )}
+
+      {/* ── Paper Trading Sandbox Modal ───────────────────────────────────────── */}
+      {paperModalOpen && (
+        <PaperTradingDrawer
+          btcPrice={btcPrice}
+          onClose={() => setPaperModalOpen(false)}
+        />
+      )}
+
       {/* ── Analysis Panel (modal) ───────────────────────────────────────────── */}
       {analyzing && (
         <AnalysisPanel
@@ -488,13 +638,12 @@ export default function App() {
 
       {/* ── Global styles ────────────────────────────────────────────────────── */}
       <style>{`
-        @keyframes pulse { 0%,100%{opacity:0.5} 50%{opacity:1} }
+        @keyframes pulse { 0%,100%{opacity:0.4} 50%{opacity:1} }
         * { box-sizing: border-box; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: ${T.bg0}; }
         ::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 3px; }
 
-        /* Accessibility: show focus ring only for keyboard nav, not mouse clicks */
         button:focus:not(:focus-visible) { outline: none; }
         button:focus-visible {
           outline: 2px solid ${T.green};

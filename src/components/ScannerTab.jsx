@@ -5,18 +5,31 @@ import { Pill } from "./Pill.jsx";
 import { sendTelegram } from "../services/alerts.js";
 import { calculatePositionSize } from "../services/sizing.js";
 import { evaluateEntryRules } from "../services/rulesEngine.js";
+import { openPaperTrade } from "../services/paperTrading.js";
+import { SoundFX } from "../services/soundFx.js";
 
-export function ScannerTab({ opportunities = [], btcPrice, ivRank, marketContext = {}, accountInfo, currentPositions = [], onAnalyzeStrangle }) {
+export function ScannerTab({
+  opportunities = [],
+  btcPrice,
+  ivRank,
+  marketContext = {},
+  accountInfo,
+  currentPositions = [],
+  onAnalyzeStrangle,
+  onOpenPayoff,
+  onOpenPaperTrade,
+}) {
   const [sentMap, setSentMap] = useState({});
-  const [selectedSize, setSelectedSize] = useState({}); // opp.id -> selected lot size
-  const [expandedChecklist, setExpandedChecklist] = useState({}); // opp.id -> boolean
-  const [strategyFilter, setStrategyFilter] = useState("AUTO"); // "AUTO" | "SHORT_PUT" | "SKEWED_STRANGLE" | "STRANGLE" | "ALL"
+  const [selectedSize, setSelectedSize] = useState({});
+  const [expandedChecklist, setExpandedChecklist] = useState({});
+  const [strategyFilter, setStrategyFilter] = useState("AUTO");
+  const [simulatedFeedback, setSimulatedFeedback] = useState(null); // opp.id -> "Simulated!"
 
   const isBullishRegime = marketContext.distFromMA20 != null && marketContext.distFromMA20 > 7.0;
   const isBearishRegime = marketContext.distFromMA20 != null && marketContext.distFromMA20 < -7.0;
-  const isSidewayRegime = !isBullishRegime && !isBearishRegime;
 
   const handleSendTelegram = async (opp) => {
+    SoundFX.playClick();
     setSentMap(prev => ({ ...prev, [opp.id]: "sending" }));
     try {
       const signalType = opp.strategy === "SHORT_PUT"
@@ -25,26 +38,37 @@ export function ScannerTab({ opportunities = [], btcPrice, ivRank, marketContext
         ? "skewed_strangle_signal"
         : "strangle_signal";
       await sendTelegram(signalType, opp);
+      SoundFX.playSuccessChime();
       setSentMap(prev => ({ ...prev, [opp.id]: "sent" }));
       setTimeout(() => {
         setSentMap(prev => ({ ...prev, [opp.id]: null }));
       }, 4000);
-    } catch (e) {
+    } catch {
+      SoundFX.playWarningAlert();
       setSentMap(prev => ({ ...prev, [opp.id]: "error" }));
     }
   };
 
+  const handleSimulate = (opp, size) => {
+    SoundFX.playSuccessChime();
+    openPaperTrade(opp, size);
+    setSimulatedFeedback(opp.id);
+    setTimeout(() => setSimulatedFeedback(null), 3500);
+    if (onOpenPaperTrade) {
+      // Allow parent to update badge/state
+    }
+  };
+
   const toggleChecklist = (id) => {
+    SoundFX.playClick();
     setExpandedChecklist(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
-  // Filter and sort opportunities based on selected tab / AUTO mode
   const filteredOpps = useMemo(() => {
     if (!Array.isArray(opportunities)) return [];
     if (strategyFilter === "ALL") return opportunities;
     if (strategyFilter === "AUTO") {
       if (isBullishRegime) {
-        // Prioritize Short Put and Skewed Strangle in Bullish market
         return opportunities.filter(o => o.strategy === "SHORT_PUT" || o.strategy === "SKEWED_STRANGLE");
       }
       return opportunities.filter(o => o.strategy === "STRANGLE" || o.strategy === "SHORT_PUT");
@@ -106,59 +130,111 @@ export function ScannerTab({ opportunities = [], btcPrice, ivRank, marketContext
         </div>
       )}
 
-      {/* Market Regime Advisory Banner */}
+      {/* Sonar Radar Orbit & Market Regime Advisory Banner */}
       <div style={{
         background: isBullishRegime
-          ? `linear-gradient(135deg, #064e3b33, #022c2222)`
+          ? `linear-gradient(135deg, rgba(0, 240, 168, 0.08), rgba(10, 14, 20, 0.95))`
           : isBearishRegime
-          ? `linear-gradient(135deg, #7f1d1d33, #450a0a22)`
-          : T.bg2,
+          ? `linear-gradient(135deg, rgba(255, 51, 102, 0.08), rgba(10, 14, 20, 0.95))`
+          : `linear-gradient(135deg, ${T.bg2}, ${T.bg1})`,
         border: `1px solid ${isBullishRegime ? T.greenMid : isBearishRegime ? T.red + "44" : T.border}`,
-        borderRadius: 12,
+        borderRadius: 14,
         padding: "16px 20px",
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
         flexWrap: "wrap",
         gap: 16,
-        boxShadow: isBullishRegime ? `0 4px 20px ${T.green}15` : "none",
+        boxShadow: isBullishRegime ? `0 4px 25px rgba(0, 240, 168, 0.15)` : "0 4px 16px rgba(0,0,0,0.3)",
+        position: "relative",
+        overflow: "hidden",
       }}>
-        <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-            <span style={{ fontSize: 16 }}>{isBullishRegime ? "🚀" : isBearishRegime ? "🐻" : "🎯"}</span>
-            <span style={{
-              color: isBullishRegime ? T.green : isBearishRegime ? T.red : T.blue,
-              fontWeight: 800, fontSize: 13, letterSpacing: 1.5, fontFamily: T.fontSans,
-            }}>
-              {isBullishRegime
-                ? `MARKET REGIME: STRONG BULLISH (+${marketContext.distFromMA20}% จาก MA20 | IVR ${marketContext.ivRank ?? ivRank}%)`
-                : isBearishRegime
-                ? `MARKET REGIME: BEARISH (${marketContext.distFromMA20}% จาก MA20)`
-                : "MARKET REGIME: SIDEWAY / NORMAL RANGE"}
-            </span>
+        {/* Animated Sonar Radar Orbit Display */}
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <div
+            style={{
+              width: 52,
+              height: 52,
+              borderRadius: "50%",
+              border: `1.5px solid ${T.green}55`,
+              position: "relative",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "radial-gradient(circle, rgba(0,240,168,0.15) 0%, transparent 70%)",
+              flexShrink: 0,
+            }}
+          >
+            {/* Radar Sweep Line */}
+            <div
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                height: "100%",
+                borderRadius: "50%",
+                background: `conic-gradient(from 0deg, transparent 0deg, transparent 270deg, rgba(0,240,168,0.4) 360deg)`,
+                animation: "radarSweep 3s linear infinite",
+              }}
+            />
+            {/* Center Blip */}
+            <div style={{ width: 8, height: 8, borderRadius: "50%", background: T.green, boxShadow: `0 0 10px ${T.green}` }} />
           </div>
-          <div style={{ color: T.textSecondary, fontSize: 12, fontFamily: T.fontSans, lineHeight: 1.5 }}>
-            {isBullishRegime ? (
-              <span>
-                💡 ตลาดกำลังมี Momentum ขาขึ้นแรง + ค่าความผันผวนสูง (High IV) แนะนำใช้กลยุทธ์ <strong style={{ color: T.green }}>Bullish Short Put</strong> หรือ <strong style={{ color: T.blue }}>Skewed Strangle</strong> เพื่อเก็บค่าพรีเมียมแพงโดยตัดความเสี่ยง Short Call โดนลาก
+
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <span style={{
+                color: isBullishRegime ? T.green : isBearishRegime ? T.red : T.blue,
+                fontWeight: 800, fontSize: 13, letterSpacing: 1.5, fontFamily: T.fontSans,
+              }}>
+                {isBullishRegime
+                  ? `ALPHA RADAR: STRONG BULLISH (+${marketContext.distFromMA20}% จาก MA20 | IVR ${marketContext.ivRank ?? ivRank}%)`
+                  : isBearishRegime
+                  ? `ALPHA RADAR: BEARISH DEFENSE (${marketContext.distFromMA20}% จาก MA20)`
+                  : "ALPHA RADAR: SIDEWAY / THETA HARVEST MODE"}
               </span>
-            ) : isBearishRegime ? (
-              <span>
-                ⚠️ ตลาดหลุดต่ำกว่าเส้นค่าเฉลี่ย 20 วัน ระมัดระวังการเปิด Short Put และติดตาม Stop Loss อย่างใกล้ชิด
-              </span>
-            ) : (
-              <span>
-                สแกนหาคู่สัญญา Delta-Neutral (0.15–0.20), DTE 18–25 วัน ตามเกณฑ์ Short Strangle v2.0
-              </span>
-            )}
+            </div>
+            <div style={{ color: T.textSecondary, fontSize: 12, fontFamily: T.fontSans, lineHeight: 1.5 }}>
+              {isBullishRegime ? (
+                <span>
+                  💡 ตลาดมี Momentum ขาขึ้นแรง + ค่าความผันผวนสูง แนะนำ <strong style={{ color: T.green }}>Bullish Short Put</strong> หรือ <strong style={{ color: T.blue }}>Skewed Strangle</strong> เพื่อเก็บค่าพรีเมียมสูงสุด
+                </span>
+              ) : isBearishRegime ? (
+                <span>
+                  ⚠️ ตลาดหลุดต่ำกว่าเส้นค่าเฉลี่ย 20 วัน ระมัดระวังการเปิด Short Put และติดตาม Stop Loss อย่างเคร่งครัด
+                </span>
+              ) : (
+                <span>
+                  ตรวจพบ <strong>{filteredOpps.length} โอกาสทอง</strong> ในวงโคจร Delta 0.15–0.20, DTE 18–25 วัน
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          {isBullishRegime && <Pill color={T.green}>⭐ แนะนำ: BULLISH SHORT PUT</Pill>}
+          {isBullishRegime && <Pill color={T.green}>⭐ TARGET LOCKED: SHORT PUT</Pill>}
           <Pill color={T.amber}>DTE 18–25d</Pill>
           <Pill color={T.purple}>IVR ≥ 30%</Pill>
-          <Pill color={T.blue}>DIST MA20: {marketContext.distFromMA20 != null ? `${marketContext.distFromMA20 > 0 ? "+" : ""}${marketContext.distFromMA20}%` : "-"}</Pill>
+          <button
+            onClick={() => {
+              SoundFX.playRadarPing();
+            }}
+            style={{
+              background: T.bg3,
+              border: `1px solid ${T.borderHover}`,
+              color: T.green,
+              borderRadius: 6,
+              padding: "4px 10px",
+              fontSize: 11,
+              fontFamily: T.font,
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            📡 PING RADAR
+          </button>
         </div>
       </div>
 
@@ -173,7 +249,7 @@ export function ScannerTab({ opportunities = [], btcPrice, ivRank, marketContext
         border: `1px solid ${T.border}`,
       }}>
         {[
-          { key: "AUTO", label: `🔥 แนะนำตามสภาวะตลาด (AUTO)${isBullishRegime ? " — BULLISH" : ""}`, color: T.green },
+          { key: "AUTO", label: `🔥 สแกนตามสภาวะตลาด (AUTO)${isBullishRegime ? " — BULLISH" : ""}`, color: T.green },
           { key: "SHORT_PUT", label: "🟢 BULLISH SHORT PUT ⭐", color: T.green },
           { key: "SKEWED_STRANGLE", label: "⚡ SKEWED STRANGLE", color: T.blue },
           { key: "STRANGLE", label: "⚖️ SHORT STRANGLE (Sideway)", color: T.purple },
@@ -183,7 +259,10 @@ export function ScannerTab({ opportunities = [], btcPrice, ivRank, marketContext
           return (
             <button
               key={tab.key}
-              onClick={() => setStrategyFilter(tab.key)}
+              onClick={() => {
+                SoundFX.playClick();
+                setStrategyFilter(tab.key);
+              }}
               style={{
                 padding: "8px 16px",
                 borderRadius: 8,
@@ -210,17 +289,17 @@ export function ScannerTab({ opportunities = [], btcPrice, ivRank, marketContext
         </div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(440px, 1fr))", gap: 18 }}>
-          {filteredOpps.map((opp) => {
+          {filteredOpps.map((opp, idx) => {
             const isSent = sentMap[opp.id] === "sent";
             const isSending = sentMap[opp.id] === "sending";
             const isShortPut = opp.strategy === "SHORT_PUT";
 
-            // Run Rules Engine Evaluation
             const evaluation = evaluateEntryRules(opp, marketContext, accountInfo, currentPositions);
             const sizing = calculatePositionSize(accountInfo, opp, btcPrice, evaluation.sizeMultiplier);
             const chosenSize = selectedSize[opp.id] ?? (sizing.defaultLot?.size ?? 0.01);
             const chosenLot = sizing.lots?.find(l => l.size === chosenSize) || sizing.defaultLot;
             const isChecklistOpen = Boolean(expandedChecklist[opp.id]);
+            const isSimulated = simulatedFeedback === opp.id;
 
             return (
               <div key={opp.id} style={{
@@ -232,19 +311,39 @@ export function ScannerTab({ opportunities = [], btcPrice, ivRank, marketContext
                 flexDirection: "column",
                 gap: 16,
                 boxShadow: evaluation.isPassed
-                  ? `0 6px 24px rgba(0,0,0,0.3), 0 0 25px ${(opp.badgeColor || T.green)}15`
+                  ? `0 8px 28px rgba(0,0,0,0.4), 0 0 25px ${(opp.badgeColor || T.green)}18`
                   : "0 4px 16px rgba(0,0,0,0.2)",
                 position: "relative",
-                transition: "border 0.2s ease",
+                transition: "all 0.2s ease",
               }}>
-                {/* Card Top */}
+                {/* Hot Alpha Badge Top Right */}
+                {idx === 0 && evaluation.isPassed && (
+                  <div style={{
+                    position: "absolute",
+                    top: -10,
+                    right: 20,
+                    background: `linear-gradient(135deg, ${T.amber}, #d97706)`,
+                    color: "#05080c",
+                    padding: "3px 10px",
+                    borderRadius: 20,
+                    fontSize: 10,
+                    fontWeight: 900,
+                    fontFamily: T.font,
+                    boxShadow: `0 0 15px rgba(251, 191, 36, 0.5)`,
+                    letterSpacing: 0.5,
+                  }}>
+                    🔥 TOP ALPHA PICK
+                  </div>
+                )}
+
+                {/* Card Top Header */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${T.border}`, paddingBottom: 12 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <Pill color={opp.badgeColor || T.green}>
                       {opp.badgeText || opp.strategyName || "STRATEGY"}
                     </Pill>
                     <span style={{ color: T.textPrimary, fontFamily: T.fontSans, fontWeight: 700, fontSize: 14 }}>
-                      📅 วันหมดอายุ (Expiry): {opp.expiry}
+                      📅 Expiry: {opp.expiry}
                     </span>
                     <Pill color={opp.isPreferredDTE ? T.green : opp.isIdealDTE ? T.blue : T.textSecondary}>
                       {opp.dte} วัน {opp.isPreferredDTE ? "★ PREFERRED" : opp.isIdealDTE ? "IDEAL" : ""}
@@ -304,7 +403,6 @@ export function ScannerTab({ opportunities = [], btcPrice, ivRank, marketContext
                     </button>
                   </div>
 
-                  {/* Reasons Preview when blocked or warning */}
                   {evaluation.reasons.length > 0 && !isChecklistOpen && (
                     <div style={{ color: T.textSecondary, fontSize: 11, fontFamily: T.fontSans, marginTop: 2, lineHeight: 1.4 }}>
                       {evaluation.reasons.slice(0, 2).map((r, i) => (
@@ -313,7 +411,6 @@ export function ScannerTab({ opportunities = [], btcPrice, ivRank, marketContext
                     </div>
                   )}
 
-                  {/* Expanded Checklist */}
                   {isChecklistOpen && (
                     <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}`, display: "flex", flexDirection: "column", gap: 6 }}>
                       {evaluation.checks.map((chk, i) => (
@@ -333,7 +430,6 @@ export function ScannerTab({ opportunities = [], btcPrice, ivRank, marketContext
 
                 {/* Strategy Legs Display */}
                 {isShortPut ? (
-                  /* Single Leg: Short Put Card */
                   <div style={{
                     background: T.bg2,
                     border: `1px solid ${T.green}28`,
@@ -354,11 +450,11 @@ export function ScannerTab({ opportunities = [], btcPrice, ivRank, marketContext
                         </div>
                       </div>
                       <div style={{ textAlign: "right" }}>
-                        <div style={{ color: T.textSecondary, fontSize: 10, fontFamily: T.fontSans }}>ระยะห่างปลอดภัย (SAFETY BUFFER)</div>
+                        <div style={{ color: T.textSecondary, fontSize: 10, fontFamily: T.fontSans }}>SAFETY BUFFER</div>
                         <div style={{ color: T.green, fontFamily: T.font, fontSize: 16, fontWeight: 800 }}>
                           -{opp.putDistancePct}%
                         </div>
-                        <div style={{ color: T.textMuted, fontSize: 9, fontFamily: T.fontSans }}>ต่ำกว่า Spot $80k</div>
+                        <div style={{ color: T.textMuted, fontSize: 9, fontFamily: T.fontSans }}>ต่ำกว่า Spot</div>
                       </div>
                     </div>
 
@@ -382,9 +478,7 @@ export function ScannerTab({ opportunities = [], btcPrice, ivRank, marketContext
                     </div>
                   </div>
                 ) : (
-                  /* Two Legs: Strangle / Skewed Strangle */
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                    {/* Put Leg */}
                     <div style={{
                       background: T.bg2, border: `1px solid ${T.amber}28`,
                       borderLeft: `3px solid ${T.amber}`, borderRadius: 8, padding: 12,
@@ -402,7 +496,6 @@ export function ScannerTab({ opportunities = [], btcPrice, ivRank, marketContext
                       </div>
                     </div>
 
-                    {/* Call Leg */}
                     <div style={{
                       background: T.bg2, border: `1px solid ${T.blue}28`,
                       borderLeft: `3px solid ${T.blue}`, borderRadius: 8, padding: 12,
@@ -448,7 +541,7 @@ export function ScannerTab({ opportunities = [], btcPrice, ivRank, marketContext
 
                   <div style={{ textAlign: "right" }}>
                     <div style={{ color: T.textSecondary, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>
-                      {isShortPut ? "BREAKEVEN PRICE" : "SAFE ZONE (BREAKEVEN)"}
+                      {isShortPut ? "BREAKEVEN PRICE" : "SAFE ZONE"}
                     </div>
                     <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 12, fontWeight: 600 }}>
                       {isShortPut
@@ -467,48 +560,13 @@ export function ScannerTab({ opportunities = [], btcPrice, ivRank, marketContext
                   }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                       <span style={{ color: T.blue, fontWeight: 700, fontSize: 10, letterSpacing: 1.5, fontFamily: T.fontSans }}>
-                        📐 POSITION SIZING (คำนวณตามเงินในพอร์ตจริง)
+                        📐 POSITION SIZING (คำนวณตามพอร์ตจริง)
                       </span>
                       {sizing.recommendedLot && !evaluation.isBlocked && (
                         <Pill color={T.green}>
                           ★ แนะนำ {sizing.recommendedLot.label} BTC
                         </Pill>
                       )}
-                    </div>
-
-                    {/* Recommendation Callout */}
-                    <div style={{
-                      background: evaluation.isBlocked
-                        ? T.redDim
-                        : (sizing.recommendedLot ? T.greenDim : T.amberDim),
-                      border: `1px solid ${evaluation.isBlocked ? T.red + "35" : T.greenMid}`,
-                      borderRadius: 6,
-                      padding: "8px 12px",
-                      marginBottom: 10,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      flexWrap: "wrap",
-                      gap: 6,
-                    }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ fontSize: 13 }}>⭐</span>
-                        <span style={{
-                          color: evaluation.isBlocked ? T.red : T.green,
-                          fontFamily: T.fontSans,
-                          fontWeight: 800,
-                          fontSize: 12,
-                        }}>
-                          {evaluation.isBlocked
-                            ? "งดเปิดไม้ใหม่ (ไม่ผ่านเกณฑ์ความปลอดภัย)"
-                            : `ขนาดที่แนะนำ: ${sizing.recommendedLot?.label || "0.01"} BTC (เหมาะสมที่สุดสำหรับพอร์ต $${accountInfo ? Number(accountInfo.equity).toLocaleString() : "1,645"})`}
-                        </span>
-                      </div>
-                      <span style={{ color: T.textSecondary, fontSize: 11, fontFamily: T.fontSans }}>
-                        {evaluation.isBlocked
-                          ? "ดูเหตุผลใน Checklist"
-                          : `ใช้ Margin ≈ $${sizing.recommendedLot?.marginRequired || 130} | Max Loss 2× ≈ -$${sizing.recommendedLot?.maxLoss || 10}`}
-                      </span>
                     </div>
 
                     {/* Lot Size Buttons */}
@@ -520,7 +578,10 @@ export function ScannerTab({ opportunities = [], btcPrice, ivRank, marketContext
                         return (
                           <button
                             key={lot.size}
-                            onClick={() => setSelectedSize(prev => ({ ...prev, [opp.id]: lot.size }))}
+                            onClick={() => {
+                              SoundFX.playClick();
+                              setSelectedSize(prev => ({ ...prev, [opp.id]: lot.size }));
+                            }}
                             style={{
                               padding: "5px 10px", borderRadius: 6, cursor: "pointer",
                               fontFamily: T.font, fontSize: 11, fontWeight: 700,
@@ -531,13 +592,12 @@ export function ScannerTab({ opportunities = [], btcPrice, ivRank, marketContext
                               transition: "all 0.15s ease",
                             }}
                           >
-                            {lot.label} {isRec && <span style={{ color: T.green, marginLeft: 2, fontSize: 10 }}>★ แนะนำ</span>}
+                            {lot.label} {isRec && <span style={{ color: T.green, marginLeft: 2, fontSize: 10 }}>★</span>}
                           </button>
                         );
                       })}
                     </div>
 
-                    {/* Selected Lot Details */}
                     {chosenLot && (
                       <div style={{
                         display: "grid", gridTemplateColumns: "1fr 1fr 1fr",
@@ -554,9 +614,6 @@ export function ScannerTab({ opportunities = [], btcPrice, ivRank, marketContext
                           <div style={{ color: T.amber, fontFamily: T.font, fontSize: 14, fontWeight: 700 }}>
                             ${chosenLot.marginRequired.toLocaleString()}
                           </div>
-                          <div style={{ color: T.textMuted, fontSize: 9, fontFamily: T.fontSans }}>
-                            ({chosenLot.marginPctOfEquity}% of equity)
-                          </div>
                         </div>
                         <div>
                           <div style={{ color: T.textSecondary, fontSize: 8, letterSpacing: 1, fontFamily: T.fontSans }}>PREMIUM รับ</div>
@@ -564,74 +621,91 @@ export function ScannerTab({ opportunities = [], btcPrice, ivRank, marketContext
                             +${chosenLot.premiumReceived.toLocaleString()}
                           </div>
                         </div>
-                        <div>
-                          <div style={{ color: T.textSecondary, fontSize: 8, letterSpacing: 1, fontFamily: T.fontSans }}>THETA / วัน</div>
-                          <div style={{ color: T.green, fontFamily: T.font, fontSize: 12, fontWeight: 700 }}>
-                            +${chosenLot.thetaPerDay}
-                          </div>
-                        </div>
-                        <div>
-                          <div style={{ color: T.textSecondary, fontSize: 8, letterSpacing: 1, fontFamily: T.fontSans }}>MAX LOSS (2×)</div>
-                          <div style={{ color: T.red, fontFamily: T.font, fontSize: 12, fontWeight: 700 }}>
-                            -${chosenLot.maxLoss.toLocaleString()}
-                          </div>
-                          <div style={{ color: T.textMuted, fontSize: 9, fontFamily: T.fontSans }}>
-                            ({chosenLot.riskPct}% of port)
-                          </div>
-                        </div>
-                        <div>
-                          <div style={{ color: T.textSecondary, fontSize: 8, letterSpacing: 1, fontFamily: T.fontSans }}>STATUS</div>
-                          <div style={{
-                            color: evaluation.isBlocked ? T.red : chosenLot.isRecommended ? T.green : (!chosenLot.canAfford ? T.red : T.amber),
-                            fontFamily: T.fontSans, fontSize: 10, fontWeight: 700,
-                          }}>
-                            {evaluation.isBlocked
-                              ? "❌ BLOCKED"
-                              : chosenLot.isRecommended
-                              ? "✓ WITHIN RULES"
-                              : (!chosenLot.canAfford ? "✗ OVER MARGIN" : "⚠ OVER 3% RULE")}
-                          </div>
-                        </div>
                       </div>
                     )}
                   </div>
                 )}
 
-                {/* Action Buttons */}
-                <div style={{ display: "flex", gap: 10, marginTop: "auto" }}>
+                {/* Action Buttons Grid */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: "auto" }}>
+                  {/* Interactive Payoff Curve Button */}
                   <button
-                    onClick={() => onAnalyzeStrangle(opp)}
+                    onClick={() => {
+                      SoundFX.playClick();
+                      onOpenPayoff?.({ ...opp, suggestedSize: chosenSize });
+                    }}
                     style={{
-                      flex: 1,
-                      background: T.greenDim,
-                      border: `1px solid ${T.greenMid}`,
-                      color: T.green,
+                      background: T.bg2,
+                      border: `1px solid ${T.blue}40`,
+                      color: T.blue,
                       borderRadius: 8,
-                      padding: "10px 14px",
+                      padding: "9px 12px",
                       cursor: "pointer",
                       fontFamily: T.fontSans,
                       fontSize: 12,
                       fontWeight: 700,
-                      letterSpacing: 0.5,
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
                       gap: 6,
                       transition: "all 0.2s ease",
                     }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = T.green;
-                      e.currentTarget.style.color = T.bg0;
+                  >
+                    <span>📊</span>
+                    <span>PAYOFF SIMULATOR</span>
+                  </button>
+
+                  {/* 1-Click Paper Trade / Simulate Button */}
+                  <button
+                    onClick={() => handleSimulate(opp, chosenSize)}
+                    style={{
+                      background: isSimulated ? T.green : `linear-gradient(135deg, ${T.purpleDim}, ${T.bg2})`,
+                      border: `1px solid ${isSimulated ? T.green : T.purple}55`,
+                      color: isSimulated ? "#05080c" : T.purple,
+                      borderRadius: 8,
+                      padding: "9px 12px",
+                      cursor: "pointer",
+                      fontFamily: T.fontSans,
+                      fontSize: 12,
+                      fontWeight: 800,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 6,
+                      transition: "all 0.2s ease",
                     }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = T.greenDim;
-                      e.currentTarget.style.color = T.green;
+                  >
+                    <span>⚡</span>
+                    <span>{isSimulated ? "✓ SIMULATED!" : "PAPER TRADE"}</span>
+                  </button>
+
+                  {/* AI Analyze Button */}
+                  <button
+                    onClick={() => {
+                      SoundFX.playClick();
+                      onAnalyzeStrangle(opp);
+                    }}
+                    style={{
+                      background: T.greenDim,
+                      border: `1px solid ${T.greenMid}`,
+                      color: T.green,
+                      borderRadius: 8,
+                      padding: "9px 12px",
+                      cursor: "pointer",
+                      fontFamily: T.fontSans,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 6,
                     }}
                   >
                     <span>🧠</span>
-                    <span>AI ANALYZE SETUP</span>
+                    <span>AI ANALYZE</span>
                   </button>
 
+                  {/* Telegram Alert Button */}
                   <button
                     onClick={() => handleSendTelegram(opp)}
                     disabled={isSending || evaluation.isBlocked}
@@ -640,21 +714,20 @@ export function ScannerTab({ opportunities = [], btcPrice, ivRank, marketContext
                       border: `1px solid ${isSent ? T.green : T.border}`,
                       color: isSent ? T.bg0 : evaluation.isBlocked ? T.textMuted : T.textPrimary,
                       borderRadius: 8,
-                      padding: "10px 16px",
+                      padding: "9px 12px",
                       cursor: evaluation.isBlocked ? "not-allowed" : "pointer",
                       fontFamily: T.fontSans,
                       fontSize: 12,
                       fontWeight: 700,
-                      letterSpacing: 0.5,
                       display: "flex",
                       alignItems: "center",
+                      justifyContent: "center",
                       gap: 6,
                       opacity: evaluation.isBlocked ? 0.5 : 1,
-                      transition: "all 0.2s ease",
                     }}
                   >
                     <span>📨</span>
-                    <span>{isSending ? "SENDING..." : isSent ? "✓ SENT" : "TELEGRAM ALERT"}</span>
+                    <span>{isSending ? "SENDING..." : isSent ? "✓ SENT" : "TELEGRAM"}</span>
                   </button>
                 </div>
               </div>
