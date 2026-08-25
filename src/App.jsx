@@ -7,6 +7,7 @@ import { scanEntryOpportunities } from "./services/scanner.js";
 import { parseAccountInfo, calculatePortfolioCapacity } from "./services/sizing.js";
 import { loadPaperTrades } from "./services/paperTrading.js";
 import { SoundFX } from "./services/soundFx.js";
+import { RISK_PROFILES } from "./config/strategyConfig.js";
 
 import { MetricCard } from "./components/MetricCard.jsx";
 import { Pill } from "./components/Pill.jsx";
@@ -37,9 +38,10 @@ export default function App() {
   const [alertsEnabled, setAlertsEnabled]       = useState(true);
   const [accountInfo, setAccountInfo]           = useState(null);
   const [isMuted, setIsMuted]                   = useState(() => SoundFX.isMuted());
-  const [payoffSetup, setPayoffSetup]           = useState(null); // setup object for Payoff Simulator
+  const [payoffSetup, setPayoffSetup]           = useState(null);
   const [paperModalOpen, setPaperModalOpen]     = useState(false);
   const [paperCount, setPaperCount]             = useState(0);
+  const [selectedProfile, setSelectedProfile]   = useState("BALANCED_ALPHA");
 
   const alertedIdsRef = useRef(new Set());
   const alertedEntryIdsRef = useRef(new Set());
@@ -141,9 +143,16 @@ export default function App() {
         setConnError(typeof posData.error === "string" ? posData.error : JSON.stringify(posData.error));
       }
 
-      // ── Scan Entry Opportunities (Adaptive Multi-Strategy) ───────────────
+      // ── Scan Entry Opportunities (Adaptive Multi-Strategy with Yield Profile) ─
       if (Array.isArray(marksData) && currentBtcPrice) {
-        const opps = scanEntryOpportunities(marksData, currentBtcPrice, currentIvRank, mappedPositions, updatedMarketContext);
+        const opps = scanEntryOpportunities(
+          marksData,
+          currentBtcPrice,
+          currentIvRank,
+          mappedPositions,
+          updatedMarketContext,
+          selectedProfile
+        );
         setOpportunities(opps);
 
         if (alertsEnabled && opps.length > 0) {
@@ -168,7 +177,7 @@ export default function App() {
     } finally {
       setLoadingPositions(false);
     }
-  }, [alertsEnabled]);
+  }, [alertsEnabled, selectedProfile]);
 
   useEffect(() => {
     fetchLiveData();
@@ -250,7 +259,7 @@ export default function App() {
             border: `1px solid ${connError ? T.red + "44" : T.greenMid}`,
             borderRadius: 6, padding: "2px 8px", fontSize: 10, fontWeight: 800, letterSpacing: 1,
           }}>
-            {connError ? "OFFLINE" : "WAR ROOM v2.5"}
+            {connError ? "OFFLINE" : "YIELD BOOST v2.5"}
           </span>
         </div>
 
@@ -456,6 +465,8 @@ export default function App() {
             marketContext={marketContext}
             accountInfo={accountInfo}
             currentPositions={positions}
+            selectedProfile={selectedProfile}
+            onSelectProfile={(profKey) => setSelectedProfile(profKey)}
             onAnalyzeStrangle={setAnalyzing}
             onOpenPayoff={(setup) => setPayoffSetup(setup)}
             onOpenPaperTrade={() => refreshPaperCount()}
@@ -472,9 +483,7 @@ export default function App() {
             <div style={{ padding: 40, textAlign: "center", color: T.textMuted, fontFamily: T.font, fontSize: 12 }}>ไม่มี open positions ในขณะนี้</div>
           ) : (
             <>
-              {/* Responsive wrapper — horizontal scroll on small screens */}
               <div style={{ overflowX: "auto" }}>
-                {/* Header row */}
                 <div style={{
                   display: "grid", gridTemplateColumns: POSITION_GRID_COLS,
                   gap: 0, padding: "8px 16px", background: T.bg1,
@@ -484,7 +493,6 @@ export default function App() {
                     <span key={h} style={{ color: T.textMuted, fontSize: 9, letterSpacing: 2, fontFamily: T.font }}>{h}</span>
                   ))}
                 </div>
-                {/* Position rows */}
                 <div style={{ minWidth: 690 }}>
                   {positions.map(pos => (
                     <PositionRow
@@ -500,99 +508,57 @@ export default function App() {
         </div>
       )}
 
-      {/* ── Rules Tab v2.0 ───────────────────────────────────────────────────── */}
+      {/* ── Rules Tab v2.5 ───────────────────────────────────────────────────── */}
       {tab === "rules" && (
         <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 20, maxWidth: 840 }}>
           <div style={{ background: `linear-gradient(135deg, ${T.bg2}, ${T.bg1})`, border: `1px solid ${T.greenMid}`, borderRadius: 10, padding: 20 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
               <span style={{ fontSize: 16 }}>🛡️</span>
               <span style={{ color: T.green, fontFamily: T.font, fontWeight: 700, fontSize: 13, letterSpacing: 2 }}>
-                BTC OPTION DESK — PRODUCTION TRADING RULES SPECIFICATION v2.0
+                BTC OPTION DESK — PRODUCTION TRADING RULES & YIELD BOOST SPECIFICATION v2.5
               </span>
             </div>
             <div style={{ color: T.textSecondary, fontSize: 13, lineHeight: 1.6, fontFamily: "'Inter', sans-serif" }}>
-              ระบบถูกออกแบบภายใต้หลักการ <strong>"SURVIVE FIRST, PROFIT SECOND"</strong> เพื่อสร้าง Positive Expected Value, ควบคุม Tail Risk, จำกัด Drawdown, และไม่เพิ่มความเสี่ยงเพื่อไล่คืน Loss ทุกเกณฑ์ถูกแปลงเป็น Machine-readable Engine ในระบบเรียบร้อยแล้ว
+              ระบบถูกออกแบบเพื่อสร้าง <strong>Optimal Capital Velocity & High Yield Harvesting</strong> โดยมี 3 Risk Profiles ให้เลือกใช้ตามสภาวะตลาด พร้อมระบบคุม Tail Risk และ Margin 30% Absolute Cap
             </div>
           </div>
 
           {[
             {
-              title: "1. STRATEGY PRIORITY MATRIX (ลำดับความสำคัญเมื่อ Rules ขัดกัน)",
+              title: "1. RISK & YIELD PROFILES (เลือกระดับผลตอบแทนตามสภาวะตลาด)",
               color: T.green,
               items: [
-                "1. Capital Preservation (การรักษาเงินต้นมาก่อนเสมอ)",
-                "2. Portfolio Risk Limit (คุมความเสี่ยงรวมของพอร์ต ≤ 10%)",
-                "3. Position Risk Limit (คุมความเสี่ยงต่อไม้ ≤ 3%)",
-                "4. Stop Loss (วินัย 100% เมื่อ Loss = 2× Premium)",
-                "5. Market Regime (กรองแนวโน้ม MA20 และความผันผวน)",
-                "6. Entry Conditions (Delta 0.15–0.20, IVR ≥ 30%, DTE 18–25 วัน)",
-                "7. Premium Optimization → Profit Maximization (ผลกำไรอยู่ลำดับสุดท้าย)",
+                "🛡️ CONSERVATIVE: Delta 0.15–0.18 | DTE 18–25 วัน | TP 50% | คาดการณ์ผลตอบแทน ~25–35% APY",
+                "⚡ BALANCED ALPHA (แนะนำ ★): Delta 0.20–0.24 | DTE 12–20 วัน | TP 45% | คาดการณ์ผลตอบแทน ~50–65% APY",
+                "🔥 HIGH YIELD HUNTER: Delta 0.25–0.28 | DTE 7–14 วัน | TP 40% | คาดการณ์ผลตอบแทน ~80–110% APY",
               ],
             },
             {
-              title: "2. ENTRY RULES (เกณฑ์การเปิด Position ใหม่)",
+              title: "2. FAST THETA DECAY & DYNAMIC TP (การเร่งรอบหมุนเงินทุน)",
               color: T.blue,
               items: [
-                "Call Delta: 0.15–0.20 (Maximum Entry Delta = 0.20 ห้ามเข้าหาก Call Delta > 0.20)",
-                "Put Delta: 0.15–0.20 (Bullish Exception สูงสุด 0.25 เมื่อ Regime และ Risk Metrics อนุญาต)",
-                "IV Filter: IV Rank ≥ 30% และ IV Percentile ≥ 40% (หาก IVR < 30% → NO ENTRY)",
-                "DTE Entry: 18–25 วัน (Preferred ★) | 14–17 วัน (ลด Position Size 25%) | <14 หรือ >28 วัน (NO ENTRY)",
-                "Market Regime (MA20): |Distance from MA20| ≤ 7% (Normal) | 7–10% (ลด Size 50%) | >10% (NO ENTRY)",
-                "Daily Volatility Safety: หาก BTC 24h Move ≥ ±5% → STOP NEW ENTRY ทันที",
-                "Event / Expiry Filter: ห้ามเปิด Position ใหม่ภายใน 48 ชม. ก่อน FOMC, CPI, และ Monthly Expiry",
+                "Dynamic Take Profit: ปิดทำกำไรทันทีเมื่อถึงเป้าหมาย 40–50% เพื่อปลดล็อค Margin ไปเปิดสัญญาใหม่",
+                "Quick TP Velocity: ปิดทำกำไรเมื่อได้ 30% ภายใน 4 วันแรก (Capital Velocity Booster)",
+                "DTE Exit (Gamma Defense): ปิด Position ทันทีเมื่อเหลือ DTE ≤ 2 วัน (ห้ามถือลุ้นจนหมดอายุ)",
               ],
             },
             {
               title: "3. POSITION & PORTFOLIO SIZING (การจำกัดขนาดไม้และความเสี่ยง)",
               color: T.purple,
               items: [
-                "Per Position Allocation: Maximum 3% ของพอร์ตต่อชุด (ห้ามใช้ 5% เป็น Default)",
+                "Per Position Allocation: Maximum 3.5% ของพอร์ตต่อชุด",
                 "Total Margin Usage: Maximum 30% ของพอร์ต (เป้าหมายปกติ 10–25% / 30% เป็น Absolute Cap)",
                 "Total Portfolio Risk: Worst-Case Stress Risk รวมทุก Position ห้ามเกิน 10% ของพอร์ต",
-                "Net Portfolio Delta: |Net Delta| ≤ 0.15 BTC ต่อ 1 BTC NAV (หากเกิน 0.20 → NO NEW ENTRY)",
-                "Concentration Risk: ห้ามเปิด Short Strike ในระนาบเดียวกัน หรือ Expiry เดียวกันซ้ำซ้อน",
+                "Net Portfolio Delta: |Net Delta| ≤ 0.18 BTC ต่อ 1 BTC NAV (หากเกิน 0.25 → NO NEW ENTRY)",
               ],
             },
             {
-              title: "4. EXIT & TAKE PROFIT RULES (การปิดทำกำไรตามวินัย)",
-              color: T.green,
-              items: [
-                "Main Take Profit: ปิดทำกำไรทันทีเมื่อ Unrealized Profit ถึง 50% ของ Original Premium (ไม่ต้องรอหมดอายุ)",
-                "Quick TP Rule: ปิดทำกำไรเมื่อได้ 25–30% หากทำกำไรถึงเป้าหมายภายใน 5 วันแรก (DaysHeld ≤ 5)",
-                "DTE Exit (Gamma Defense): ปิด Position ทันทีเมื่อเหลือ DTE ≤ 2 วัน (ห้ามถือลุ้นจนถึงวินาทีหมดอายุ 08:00 UTC)",
-              ],
-            },
-            {
-              title: "5. STOP LOSS & DELTA DEFENSIVE TRIGGERS (การตัดขาดทุนและระบบตั้งรับ)",
+              title: "4. STOP LOSS & DELTA DEFENSE (วินัย 100%)",
               color: T.red,
               items: [
                 "Hard Stop Loss: Cut Loss เด็ดขาดทันทีเมื่อ Loss ≥ 2.0× Original Premium (ขาดทุนรวม 200%)",
-                "Delta Warning: Delta ≥ 0.35 → เข้าสู่โหมด Defensive Review",
-                "Delta Strong Warning: Delta ≥ 0.50 หรือ Strike Breach → ห้ามเพิ่มความเสี่ยง / เตรียม Close หรือ Roll",
-                "Delta Action Level: Delta ≥ 0.65 → CLOSE ทันที หรือ Execute Approved Roll (ห้ามรอให้ Delta กลับมาเอง)",
-                "Strike Breach: หาก Spot ทะลุ Strike และ Delta ≥ 0.50 ให้ประเมิน Close หรือ Roll ทันที",
-              ],
-            },
-            {
-              title: "6. ROLL RULES (กฎเหล็กการ Roll ขยายเวลา)",
-              color: T.amber,
-              items: [
-                "Maximum Roll: อนุญาตให้ Roll ได้สูงสุด 1 ครั้งต่อ Position เท่านั้น (หลังจาก Roll แล้วห้าม Roll ซ้ำอีกเด็ดขาด)",
-                "Roll Out & Away: ต้องเพิ่ม DTE, ขยับ Strike ให้ห่าง Spot, ลด Delta, และไม่เพิ่ม Portfolio Risk",
-                "Golden Net Credit Rule: การ Roll ต้องได้รับ Net Credit > 0 เสมอ (ห้ามยอมจ่าย Net Debit โดยเด็ดขาด)",
-                "No Loss Avoidance Roll: ห้าม Roll เพียงเพื่อหลีกเลี่ยงการรับรู้ Loss หาก Risk พอร์ตโดยรวมสูงขึ้นให้ Cut Loss ทันที",
-                "Second Breach: หาก Position ที่ถูก Roll ไปแล้วถูกทดสอบอีกครั้ง ให้ Hard Close ทันที",
-              ],
-            },
-            {
-              title: "7. DRAWDOWN & CONSECUTIVE LOSS CONTROLS (Portfolio Kill Switch)",
-              color: T.red,
-              items: [
-                "Daily Loss Limit: Daily Portfolio Loss ≥ 3% → NO NEW ENTRY ทันที พร้อม Review ทุก Position",
-                "Monthly Drawdown (Half Size): Monthly Drawdown ≥ 10% → ลด Position Size ลง 50%",
-                "Monthly Drawdown (Stop Strategy): Monthly Drawdown ≥ 15% → STOP STRATEGY ทันทีและ Full Review",
-                "Consecutive Losses: แพ้ติดกัน 3 ครั้ง → ลด Size 50% | แพ้ติดกัน 5 ครั้ง → Pause Strategy ทันที",
-                "No Martingale / Revenge Trading: ห้าม Average Down หรือเพิ่ม Position เพื่อเอาคืน Loss ทุกกรณี",
+                "Delta Warning: Delta ≥ 0.38 → Defensive Review",
+                "Delta Action Level: Delta ≥ 0.65 → CLOSE ทันที หรือ Execute Approved Roll (สูงสุด 1 ครั้ง)",
               ],
             },
           ].map(({ title, color, items }) => (

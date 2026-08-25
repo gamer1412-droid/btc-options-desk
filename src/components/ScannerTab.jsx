@@ -7,6 +7,7 @@ import { calculatePositionSize } from "../services/sizing.js";
 import { evaluateEntryRules } from "../services/rulesEngine.js";
 import { openPaperTrade } from "../services/paperTrading.js";
 import { SoundFX } from "../services/soundFx.js";
+import { RISK_PROFILES } from "../config/strategyConfig.js";
 
 export function ScannerTab({
   opportunities = [],
@@ -15,6 +16,8 @@ export function ScannerTab({
   marketContext = {},
   accountInfo,
   currentPositions = [],
+  selectedProfile = "BALANCED_ALPHA",
+  onSelectProfile,
   onAnalyzeStrangle,
   onOpenPayoff,
   onOpenPaperTrade,
@@ -23,7 +26,7 @@ export function ScannerTab({
   const [selectedSize, setSelectedSize] = useState({});
   const [expandedChecklist, setExpandedChecklist] = useState({});
   const [strategyFilter, setStrategyFilter] = useState("AUTO");
-  const [simulatedFeedback, setSimulatedFeedback] = useState(null); // opp.id -> "Simulated!"
+  const [simulatedFeedback, setSimulatedFeedback] = useState(null);
 
   const isBullishRegime = marketContext.distFromMA20 != null && marketContext.distFromMA20 > 7.0;
   const isBearishRegime = marketContext.distFromMA20 != null && marketContext.distFromMA20 < -7.0;
@@ -55,7 +58,7 @@ export function ScannerTab({
     setSimulatedFeedback(opp.id);
     setTimeout(() => setSimulatedFeedback(null), 3500);
     if (onOpenPaperTrade) {
-      // Allow parent to update badge/state
+      onOpenPaperTrade();
     }
   };
 
@@ -78,6 +81,76 @@ export function ScannerTab({
 
   return (
     <div style={{ padding: "0 24px 32px", display: "flex", flexDirection: "column", gap: 20 }}>
+
+      {/* ── Yield & Risk Profile Selector (Preset Switcher) ───────────────── */}
+      <div style={{
+        background: `linear-gradient(135deg, ${T.bg2}, ${T.bg1})`,
+        border: `1px solid ${T.borderHover}`,
+        borderRadius: 14,
+        padding: "16px 20px",
+        boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 16 }}>🚀</span>
+            <span style={{ color: T.textPrimary, fontFamily: T.fontSans, fontWeight: 800, fontSize: 13, letterSpacing: 1 }}>
+              YIELD TARGET & RISK PROFILE (เลือกระดับผลตอบแทนที่ต้องการ)
+            </span>
+          </div>
+          <span style={{ color: T.textSecondary, fontSize: 11, fontFamily: T.fontSans }}>
+            ผลตอบแทนคาดการณ์: <strong style={{ color: T.green }}>{RISK_PROFILES[selectedProfile]?.desc.split(",")[0]}</strong>
+          </span>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10 }}>
+          {Object.values(RISK_PROFILES).map((prof) => {
+            const isSelected = selectedProfile === prof.key;
+            return (
+              <div
+                key={prof.key}
+                onClick={() => {
+                  SoundFX.playClick();
+                  onSelectProfile?.(prof.key);
+                }}
+                style={{
+                  background: isSelected
+                    ? `linear-gradient(180deg, ${T.bg3}, ${T.bg2})`
+                    : T.bg1,
+                  border: `1px solid ${isSelected ? (prof.key === "HIGH_YIELD" ? T.amber : T.green) : T.border}`,
+                  borderTop: isSelected ? `3px solid ${prof.key === "HIGH_YIELD" ? T.amber : T.green}` : `1px solid ${T.border}`,
+                  borderRadius: 10,
+                  padding: "12px 14px",
+                  cursor: "pointer",
+                  boxShadow: isSelected ? `0 4px 18px rgba(0,0,0,0.3), 0 0 15px ${(prof.key === "HIGH_YIELD" ? T.amber : T.green)}20` : "none",
+                  transition: "all 0.2s ease",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <strong style={{
+                    color: isSelected ? (prof.key === "HIGH_YIELD" ? T.amber : T.green) : T.textPrimary,
+                    fontSize: 12, fontFamily: T.fontSans, fontWeight: 800,
+                  }}>
+                    {prof.label}
+                  </strong>
+                  {isSelected && (
+                    <span style={{
+                      background: prof.key === "HIGH_YIELD" ? T.amberDim : T.greenDim,
+                      color: prof.key === "HIGH_YIELD" ? T.amber : T.green,
+                      border: `1px solid ${prof.key === "HIGH_YIELD" ? T.amber : T.green}40`,
+                      borderRadius: 4, padding: "1px 5px", fontSize: 9, fontWeight: 800, fontFamily: T.font,
+                    }}>
+                      ACTIVE
+                    </span>
+                  )}
+                </div>
+                <div style={{ color: T.textSecondary, fontSize: 11, marginTop: 4, fontFamily: T.fontSans, lineHeight: 1.4 }}>
+                  {prof.desc}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
 
       {/* Account Balance & Margin Overview Banner */}
       {accountInfo && (
@@ -165,7 +238,6 @@ export function ScannerTab({
               flexShrink: 0,
             }}
           >
-            {/* Radar Sweep Line */}
             <div
               style={{
                 position: "absolute",
@@ -178,7 +250,6 @@ export function ScannerTab({
                 animation: "radarSweep 3s linear infinite",
               }}
             />
-            {/* Center Blip */}
             <div style={{ width: 8, height: 8, borderRadius: "50%", background: T.green, boxShadow: `0 0 10px ${T.green}` }} />
           </div>
 
@@ -206,7 +277,7 @@ export function ScannerTab({
                 </span>
               ) : (
                 <span>
-                  ตรวจพบ <strong>{filteredOpps.length} โอกาสทอง</strong> ในวงโคจร Delta 0.15–0.20, DTE 18–25 วัน
+                  ตรวจพบ <strong>{filteredOpps.length} โอกาสทอง</strong> พร้อมอัตราผลตอบแทนเฉลี่ย <strong>~50–85% APY</strong>
                 </span>
               )}
             </div>
@@ -214,9 +285,9 @@ export function ScannerTab({
         </div>
 
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          {isBullishRegime && <Pill color={T.green}>⭐ TARGET LOCKED: SHORT PUT</Pill>}
-          <Pill color={T.amber}>DTE 18–25d</Pill>
-          <Pill color={T.purple}>IVR ≥ 30%</Pill>
+          {isBullishRegime && <Pill color={T.green}>⭐ TARGET LOCKED</Pill>}
+          <Pill color={T.amber}>DTE {RISK_PROFILES[selectedProfile]?.dtePreferredMin}–{RISK_PROFILES[selectedProfile]?.dtePreferredMax}d</Pill>
+          <Pill color={T.purple}>IVR ≥ 28%</Pill>
           <button
             onClick={() => {
               SoundFX.playRadarPing();
@@ -301,6 +372,8 @@ export function ScannerTab({
             const isChecklistOpen = Boolean(expandedChecklist[opp.id]);
             const isSimulated = simulatedFeedback === opp.id;
 
+            const apy = opp.annualizedYield || (opp.totalPremium ? Math.round((opp.totalPremium / (btcPrice * 0.18)) * (365 / (opp.dte || 14)) * 100) : 45);
+
             return (
               <div key={opp.id} style={{
                 background: `linear-gradient(180deg, ${T.bg1}, ${T.bg0})`,
@@ -316,25 +389,25 @@ export function ScannerTab({
                 position: "relative",
                 transition: "all 0.2s ease",
               }}>
-                {/* Hot Alpha Badge Top Right */}
-                {idx === 0 && evaluation.isPassed && (
-                  <div style={{
-                    position: "absolute",
-                    top: -10,
-                    right: 20,
-                    background: `linear-gradient(135deg, ${T.amber}, #d97706)`,
-                    color: "#05080c",
-                    padding: "3px 10px",
-                    borderRadius: 20,
-                    fontSize: 10,
-                    fontWeight: 900,
-                    fontFamily: T.font,
-                    boxShadow: `0 0 15px rgba(251, 191, 36, 0.5)`,
-                    letterSpacing: 0.5,
-                  }}>
-                    🔥 TOP ALPHA PICK
-                  </div>
-                )}
+                {/* APY Yield Banner Top Right */}
+                <div style={{
+                  position: "absolute",
+                  top: -11,
+                  right: 20,
+                  background: apy >= 65
+                    ? `linear-gradient(135deg, ${T.amber}, #d97706)`
+                    : `linear-gradient(135deg, ${T.green}, #00b380)`,
+                  color: "#05080c",
+                  padding: "3px 12px",
+                  borderRadius: 20,
+                  fontSize: 10,
+                  fontWeight: 900,
+                  fontFamily: T.font,
+                  boxShadow: `0 0 15px ${apy >= 65 ? "rgba(251, 191, 36, 0.5)" : "rgba(0, 240, 168, 0.4)"}`,
+                  letterSpacing: 0.5,
+                }}>
+                  {apy >= 65 ? "🔥" : "💎"} EST. YIELD ~{apy}% APY
+                </div>
 
                 {/* Card Top Header */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${T.border}`, paddingBottom: 12 }}>
@@ -346,7 +419,7 @@ export function ScannerTab({
                       📅 Expiry: {opp.expiry}
                     </span>
                     <Pill color={opp.isPreferredDTE ? T.green : opp.isIdealDTE ? T.blue : T.textSecondary}>
-                      {opp.dte} วัน {opp.isPreferredDTE ? "★ PREFERRED" : opp.isIdealDTE ? "IDEAL" : ""}
+                      {opp.dte} วัน {opp.isPreferredDTE ? "★ FAST THETA" : opp.isIdealDTE ? "IDEAL" : ""}
                     </Pill>
                     {opp.isFullyHeld ? (
                       <Pill color={T.blue}>✓ ถือในพอร์ตแล้ว</Pill>
@@ -469,7 +542,7 @@ export function ScannerTab({
                       </div>
                       <div>
                         <span style={{ color: T.textSecondary, fontSize: 9, display: "block" }}>MARK PRICE</span>
-                        <strong style={{ color: T.green }}>${opp.putMark}</strong>
+                        <strong style={{ color: T.green }}>+${opp.putMark}</strong>
                       </div>
                       <div>
                         <span style={{ color: T.textSecondary, fontSize: 9, display: "block" }}>THETA/วัน</span>
@@ -492,7 +565,7 @@ export function ScannerTab({
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 11, color: T.textSecondary, fontFamily: T.font }}>
                         <span>Delta: <strong style={{ color: T.amber }}>{opp.putDelta}</strong></span>
-                        <span>Mark: <strong style={{ color: T.green }}>${opp.putMark}</strong></span>
+                        <span>Mark: <strong style={{ color: T.green }}>+${opp.putMark}</strong></span>
                       </div>
                     </div>
 
@@ -511,7 +584,7 @@ export function ScannerTab({
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 11, color: T.textSecondary, fontFamily: T.font }}>
                         <span>Delta: <strong style={{ color: T.blue }}>+{opp.callDelta}</strong></span>
-                        <span>Mark: <strong style={{ color: T.green }}>${opp.callMark}</strong></span>
+                        <span>Mark: <strong style={{ color: T.green }}>+${opp.callMark}</strong></span>
                       </div>
                     </div>
                   </div>
@@ -527,26 +600,24 @@ export function ScannerTab({
                     <div style={{ color: T.textSecondary, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>
                       {isShortPut ? "PREMIUM รับสุทธิ" : "PREMIUM รวม"}
                     </div>
-                    <div style={{ color: T.green, fontFamily: T.font, fontSize: 16, fontWeight: 800 }}>
+                    <div style={{ color: T.green, fontFamily: T.font, fontSize: 17, fontWeight: 800 }}>
                       +${opp.totalPremium} <span style={{ fontSize: 10, color: T.textSecondary, fontWeight: 400 }}>/ 1 BTC</span>
                     </div>
                   </div>
 
                   <div>
                     <div style={{ color: T.textSecondary, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>THETA DECAY</div>
-                    <div style={{ color: T.green, fontFamily: T.font, fontSize: 14, fontWeight: 700 }}>
+                    <div style={{ color: T.green, fontFamily: T.font, fontSize: 15, fontWeight: 700 }}>
                       +${opp.totalTheta} <span style={{ fontSize: 10, color: T.textSecondary, fontWeight: 400 }}>/ วัน</span>
                     </div>
                   </div>
 
                   <div style={{ textAlign: "right" }}>
                     <div style={{ color: T.textSecondary, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>
-                      {isShortPut ? "BREAKEVEN PRICE" : "SAFE ZONE"}
+                      EST. ANNUAL YIELD
                     </div>
-                    <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 12, fontWeight: 600 }}>
-                      {isShortPut
-                        ? `$${opp.breakevenLow?.toLocaleString()}`
-                        : `$${opp.breakevenLow?.toLocaleString()} – $${opp.breakevenHigh?.toLocaleString()}`}
+                    <div style={{ color: apy >= 65 ? T.amber : T.green, fontFamily: T.font, fontSize: 15, fontWeight: 800 }}>
+                      ~{apy}% APY
                     </div>
                   </div>
                 </div>
@@ -569,7 +640,6 @@ export function ScannerTab({
                       )}
                     </div>
 
-                    {/* Lot Size Buttons */}
                     <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
                       <span style={{ fontSize: 11, color: T.textSecondary, fontFamily: T.fontSans, marginRight: 2 }}>เลือกขนาด:</span>
                       {sizing.lots.filter(l => l.canAfford || l.size <= 0.05).map(lot => {
@@ -628,7 +698,6 @@ export function ScannerTab({
 
                 {/* Action Buttons Grid */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: "auto" }}>
-                  {/* Interactive Payoff Curve Button */}
                   <button
                     onClick={() => {
                       SoundFX.playClick();
@@ -648,14 +717,12 @@ export function ScannerTab({
                       alignItems: "center",
                       justifyContent: "center",
                       gap: 6,
-                      transition: "all 0.2s ease",
                     }}
                   >
                     <span>📊</span>
                     <span>PAYOFF SIMULATOR</span>
                   </button>
 
-                  {/* 1-Click Paper Trade / Simulate Button */}
                   <button
                     onClick={() => handleSimulate(opp, chosenSize)}
                     style={{
@@ -672,14 +739,12 @@ export function ScannerTab({
                       alignItems: "center",
                       justifyContent: "center",
                       gap: 6,
-                      transition: "all 0.2s ease",
                     }}
                   >
                     <span>⚡</span>
                     <span>{isSimulated ? "✓ SIMULATED!" : "PAPER TRADE"}</span>
                   </button>
 
-                  {/* AI Analyze Button */}
                   <button
                     onClick={() => {
                       SoundFX.playClick();
@@ -705,7 +770,6 @@ export function ScannerTab({
                     <span>AI ANALYZE</span>
                   </button>
 
-                  {/* Telegram Alert Button */}
                   <button
                     onClick={() => handleSendTelegram(opp)}
                     disabled={isSending || evaluation.isBlocked}

@@ -1,16 +1,19 @@
-import { STRATEGY_CONFIG } from "../config/strategyConfig.js";
+import { STRATEGY_CONFIG, RISK_PROFILES } from "../config/strategyConfig.js";
 
-// ─── Entry Signal Scanner v2.1 (Adaptive Multi-Strategy) ──────────────────────
-// Scans Binance Options market marks to find opportunities matching Production Rules:
-// 1. Bullish Short Put (Naked / Cash-Secured Put for Strong Bullish / High IV regimes)
-// 2. Skewed Strangle (Bullish Strangle with Wide OTM Call)
-// 3. Standard Short Strangle (Delta-Neutral for Sideway / Normal regimes)
-
-export function scanEntryOpportunities(marksData, btcPrice, ivRank = null, currentPositions = [], marketContext = {}) {
+// ─── Entry Signal Scanner v2.5 (Yield Boost & Adaptive Multi-Strategy) ─────────
+export function scanEntryOpportunities(
+  marksData,
+  btcPrice,
+  ivRank = null,
+  currentPositions = [],
+  marketContext = {},
+  selectedProfileKey = "BALANCED_ALPHA"
+) {
   if (!Array.isArray(marksData) || marksData.length === 0 || !btcPrice) {
     return [];
   }
 
+  const profile = RISK_PROFILES[selectedProfileKey] || RISK_PROFILES.BALANCED_ALPHA;
   const cfg = STRATEGY_CONFIG;
   const now = Date.now();
   const parsedContracts = [];
@@ -43,8 +46,8 @@ export function scanEntryOpportunities(marksData, btcPrice, ivRank = null, curre
     const expMs = Date.UTC(y, mo - 1, d, 8, 0, 0);
     const dte = Math.max(0, Math.ceil((expMs - now) / 86400000));
 
-    // Scan within broad window 7 to 35 days (preferred 18–25 days, ideal 14–28 days)
-    if (dte < 7 || dte > 35) continue;
+    // Scan within broad window 6 to 35 days
+    if (dte < 6 || dte > 35) continue;
 
     const strike = Number(parts[2]);
     const optType = parts[3] === "C" ? "Call" : parts[3] === "P" ? "Put" : null;
@@ -90,16 +93,20 @@ export function scanEntryOpportunities(marksData, btcPrice, ivRank = null, curre
   const isBullishRegime = marketContext.distFromMA20 != null && marketContext.distFromMA20 > 7.0;
 
   for (const [expiry, { puts, calls, dte }] of byExpiry.entries()) {
-    const isPreferredDTE = dte >= cfg.dte.preferredMin && dte <= cfg.dte.preferredMax; // 18-25 days
-    const isIdealDTE = dte >= cfg.dte.min && dte <= cfg.dte.max; // 14-28 days
-    const baseDTEScore = isPreferredDTE ? 150 : isIdealDTE ? 100 : 50;
+    const isPreferredDTE = dte >= profile.dtePreferredMin && dte <= profile.dtePreferredMax;
+    const isIdealDTE = dte >= profile.dteMin && dte <= profile.dteMax;
+    const baseDTEScore = isPreferredDTE ? 160 : isIdealDTE ? 110 : 60;
+
+    // Target Delta from profile
+    const targetPutDelta = -(profile.deltaMin + profile.deltaMax) / 2;
+    const targetCallDelta = (profile.deltaMin + profile.deltaMax) / 2;
 
     // ──────────────────────────────────────────────────────────────────────────
-    // 1. STRATEGY: Bullish Short Put (Naked Put / Cash-Secured Put)
+    // 1. STRATEGY: Bullish Short Put
     // ──────────────────────────────────────────────────────────────────────────
     const candidatePuts = puts
-      .filter(p => p.delta <= -0.14 && p.delta >= -0.26 && p.strike < btcPrice)
-      .sort((a, b) => Math.abs(a.delta - (-0.18)) - Math.abs(b.delta - (-0.18)));
+      .filter(p => Math.abs(p.delta) >= (profile.deltaMin - 0.03) && Math.abs(p.delta) <= (profile.bullishPutMax + 0.03) && p.strike < btcPrice)
+      .sort((a, b) => Math.abs(a.delta - targetPutDelta) - Math.abs(b.delta - targetPutDelta));
 
     if (candidatePuts.length > 0) {
       const bestPut = candidatePuts[0];
@@ -109,18 +116,18 @@ export function scanEntryOpportunities(marksData, btcPrice, ivRank = null, curre
       const putDistancePct = (((btcPrice - bestPut.strike) / btcPrice) * 100).toFixed(1);
       const estMarginReq = Math.round(btcPrice * 0.15); // ~15% margin for single short put
       const returnOnMarginPct = estMarginReq > 0 ? ((putPremium / estMarginReq) * 100).toFixed(1) : "0.0";
+      const annualizedYield = dte > 0 ? Math.round((Number(returnOnMarginPct) * (365 / dte))) : 0;
       const isPutHeld = Boolean(bestPut.isHeld);
 
-      // In bullish regimes, Short Put receives priority bonus score
-      const regimeBonus = isBullishRegime ? 60 : 0;
-      const shortPutScore = baseDTEScore + regimeBonus + putPremium / 5;
+      const regimeBonus = isBullishRegime ? 70 : 0;
+      const shortPutScore = baseDTEScore + regimeBonus + (putPremium / 4) + (annualizedYield / 3);
 
       results.push({
         id: `SHORT_PUT-${bestPut.symbol}`,
         strategy: "SHORT_PUT",
         strategyName: "BULLISH SHORT PUT",
         badgeText: "BULLISH PUT",
-        badgeColor: "#10b981", // green
+        badgeColor: "#00f0a8",
         expiry,
         dte,
         btcPrice: Math.round(btcPrice),
@@ -134,6 +141,7 @@ export function scanEntryOpportunities(marksData, btcPrice, ivRank = null, curre
         breakevenLow,
         putDistancePct,
         returnOnMarginPct,
+        annualizedYield,
         ivRank: ivRank || bestPut.iv,
         isPreferredDTE,
         isIdealDTE,
@@ -147,14 +155,13 @@ export function scanEntryOpportunities(marksData, btcPrice, ivRank = null, curre
     // ──────────────────────────────────────────────────────────────────────────
     // 2. STRATEGY: Skewed Strangle (Bullish Bias with Wide OTM Call)
     // ──────────────────────────────────────────────────────────────────────────
-    // Put delta ~ 0.18–0.24, Call delta ~ 0.08–0.12 (extra wide upside buffer)
     const skewedPuts = puts
-      .filter(p => p.delta <= -0.16 && p.delta >= -0.26 && p.strike < btcPrice)
-      .sort((a, b) => Math.abs(a.delta - (-0.20)) - Math.abs(b.delta - (-0.20)));
+      .filter(p => Math.abs(p.delta) >= profile.deltaMin && Math.abs(p.delta) <= (profile.bullishPutMax + 0.02) && p.strike < btcPrice)
+      .sort((a, b) => Math.abs(a.delta - targetPutDelta) - Math.abs(b.delta - targetPutDelta));
 
     const wideCalls = calls
-      .filter(c => c.delta >= 0.06 && c.delta <= 0.13 && c.strike > btcPrice)
-      .sort((a, b) => Math.abs(a.delta - 0.10) - Math.abs(b.delta - 0.10));
+      .filter(c => c.delta >= 0.07 && c.delta <= 0.15 && c.strike > btcPrice)
+      .sort((a, b) => Math.abs(a.delta - 0.11) - Math.abs(b.delta - 0.11));
 
     if (skewedPuts.length > 0 && wideCalls.length > 0) {
       const bestSkewPut = skewedPuts[0];
@@ -168,20 +175,24 @@ export function scanEntryOpportunities(marksData, btcPrice, ivRank = null, curre
       const putDistancePct = (((btcPrice - bestSkewPut.strike) / btcPrice) * 100).toFixed(1);
       const callDistancePct = (((bestSkewCall.strike - btcPrice) / btcPrice) * 100).toFixed(1);
 
+      const estMarginReq = Math.round(btcPrice * 0.18);
+      const returnOnMarginPct = estMarginReq > 0 ? ((totalPremium / estMarginReq) * 100).toFixed(1) : "0.0";
+      const annualizedYield = dte > 0 ? Math.round((Number(returnOnMarginPct) * (365 / dte))) : 0;
+
       const isPutHeld = Boolean(bestSkewPut.isHeld);
       const isCallHeld = Boolean(bestSkewCall.isHeld);
       const isFullyHeld = isPutHeld && isCallHeld;
       const isPartiallyHeld = isPutHeld || isCallHeld;
 
-      const regimeBonus = isBullishRegime ? 30 : 0;
-      const skewedScore = baseDTEScore + regimeBonus + totalPremium / 10;
+      const regimeBonus = isBullishRegime ? 40 : 0;
+      const skewedScore = baseDTEScore + regimeBonus + (totalPremium / 6) + (annualizedYield / 3);
 
       results.push({
         id: `SKEWED_STRANGLE-${bestSkewPut.symbol}_${bestSkewCall.symbol}`,
         strategy: "SKEWED_STRANGLE",
         strategyName: "SKEWED STRANGLE (BULLISH)",
         badgeText: "SKEWED STRANGLE",
-        badgeColor: "#38bdf8", // sky blue
+        badgeColor: "#38bdf8",
         expiry,
         dte,
         btcPrice: Math.round(btcPrice),
@@ -201,6 +212,8 @@ export function scanEntryOpportunities(marksData, btcPrice, ivRank = null, curre
         breakevenHigh,
         putDistancePct,
         callDistancePct,
+        returnOnMarginPct,
+        annualizedYield,
         ivRank: ivRank || Math.round((bestSkewPut.iv + bestSkewCall.iv) / 2),
         isPreferredDTE,
         isIdealDTE,
@@ -213,15 +226,15 @@ export function scanEntryOpportunities(marksData, btcPrice, ivRank = null, curre
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // 3. STRATEGY: Standard Delta-Neutral Strangle (for Sideway regimes)
+    // 3. STRATEGY: Standard Short Strangle
     // ──────────────────────────────────────────────────────────────────────────
     const stdPuts = puts
-      .filter(p => p.delta <= -0.14 && p.delta >= -0.26 && p.strike < btcPrice)
-      .sort((a, b) => Math.abs(a.delta - (-0.18)) - Math.abs(b.delta - (-0.18)));
+      .filter(p => Math.abs(p.delta) >= (profile.deltaMin - 0.02) && Math.abs(p.delta) <= (profile.deltaMax + 0.02) && p.strike < btcPrice)
+      .sort((a, b) => Math.abs(a.delta - targetPutDelta) - Math.abs(b.delta - targetPutDelta));
 
     const stdCalls = calls
-      .filter(c => c.delta >= 0.13 && c.delta <= 0.22 && c.strike > btcPrice)
-      .sort((a, b) => Math.abs(a.delta - 0.18) - Math.abs(b.delta - 0.18));
+      .filter(c => c.delta >= (profile.deltaMin - 0.02) && c.delta <= (profile.deltaMax + 0.02) && c.strike > btcPrice)
+      .sort((a, b) => Math.abs(a.delta - targetCallDelta) - Math.abs(b.delta - targetCallDelta));
 
     if (stdPuts.length > 0 && stdCalls.length > 0) {
       const bestPut = stdPuts[0];
@@ -235,19 +248,23 @@ export function scanEntryOpportunities(marksData, btcPrice, ivRank = null, curre
       const putDistancePct = (((btcPrice - bestPut.strike) / btcPrice) * 100).toFixed(1);
       const callDistancePct = (((bestCall.strike - btcPrice) / btcPrice) * 100).toFixed(1);
 
+      const estMarginReq = Math.round(btcPrice * 0.18);
+      const returnOnMarginPct = estMarginReq > 0 ? ((totalPremium / estMarginReq) * 100).toFixed(1) : "0.0";
+      const annualizedYield = dte > 0 ? Math.round((Number(returnOnMarginPct) * (365 / dte))) : 0;
+
       const isPutHeld = Boolean(bestPut.isHeld);
       const isCallHeld = Boolean(bestCall.isHeld);
       const isFullyHeld = isPutHeld && isCallHeld;
       const isPartiallyHeld = isPutHeld || isCallHeld;
 
-      const strangleScore = baseDTEScore + totalPremium / 10;
+      const strangleScore = baseDTEScore + (totalPremium / 6) + (annualizedYield / 3);
 
       results.push({
         id: `STRANGLE-${bestPut.symbol}_${bestCall.symbol}`,
         strategy: "STRANGLE",
-        strategyName: "SHORT STRANGLE (STANDARD)",
-        badgeText: "STANDARD STRANGLE",
-        badgeColor: "#a855f7", // purple
+        strategyName: "SHORT STRANGLE (BALANCED)",
+        badgeText: "BALANCED STRANGLE",
+        badgeColor: "#c084fc",
         expiry,
         dte,
         btcPrice: Math.round(btcPrice),
@@ -267,6 +284,8 @@ export function scanEntryOpportunities(marksData, btcPrice, ivRank = null, curre
         breakevenHigh,
         putDistancePct,
         callDistancePct,
+        returnOnMarginPct,
+        annualizedYield,
         ivRank: ivRank || Math.round((bestPut.iv + bestCall.iv) / 2),
         isPreferredDTE,
         isIdealDTE,
@@ -279,7 +298,5 @@ export function scanEntryOpportunities(marksData, btcPrice, ivRank = null, curre
     }
   }
 
-  // Sort by score descending (highest priority setup first)
   return results.sort((a, b) => b.score - a.score);
 }
-
