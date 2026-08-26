@@ -413,7 +413,7 @@ export function evaluateEntryRules(opp, marketContext = {}, accountInfo = null, 
     }
   }
 
-  // ── 7. Portfolio Margin Limit (Max 30%) ─────────────────────────────────
+  // ── 7. Portfolio Margin Limit (30% caution / 35% hard ceiling) ──────────
   if (accountInfo && accountInfo.equity > 0) {
     const marginPct = accountInfo.marginPct;
     if (marginPct >= cfg.sizing.maxTotalMarginPct) {
@@ -425,11 +425,21 @@ export function evaluateEntryRules(opp, marketContext = {}, accountInfo = null, 
         icon: "❌",
       });
       reasons.push(`❌ Margin Used ปัจจุบัน = ${marginPct}% (ชนเพดานสูงสุด ${cfg.sizing.maxTotalMarginPct}%)`);
+    } else if (marginPct >= cfg.sizing.cautionMarginPct) {
+      hasWarning = true;
+      sizeMultiplier *= 0.5;
+      checks.push({
+        rule: "Total Margin Limit",
+        status: "WARNING",
+        message: `Margin Used = ${marginPct}% — โซนระวัง ${cfg.sizing.cautionMarginPct}–${cfg.sizing.maxTotalMarginPct}% ลดขนาดใหม่ 50%`,
+        icon: "⚠️",
+      });
+      reasons.push(`⚠️ Margin ${marginPct}% อยู่ในโซนระวัง — ลดขนาด Position ใหม่ครึ่งหนึ่ง`);
     } else {
       checks.push({
         rule: "Total Margin Limit",
         status: "PASS",
-        message: `Margin Used = ${marginPct}% (< ${cfg.sizing.maxTotalMarginPct}%)`,
+        message: `Margin Used = ${marginPct}% (< ${cfg.sizing.cautionMarginPct}% Caution)`,
         icon: "✅",
       });
     }

@@ -466,7 +466,7 @@ export default function App() {
       {/* ── Metric Cards & Speedometer Section ────────────────────────────────── */}
       <div style={{ display: "flex", gap: 14, padding: "16px 24px", flexWrap: "wrap", alignItems: "stretch" }}>
         <div style={{ flex: "2 1 540px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
-          <MetricCard label="Account Equity" value={accountInfo ? fmtUSD(accountInfo.equity, 2) : "N/A"} color={T.blue} sub={accountInfo ? `Margin ${accountInfo.marginPct}% / 30% Max` : "รอข้อมูล Options Account"} />
+          <MetricCard label="Account Equity" value={accountInfo ? fmtUSD(accountInfo.equity, 2) : "N/A"} color={T.blue} sub={accountInfo ? `Margin ${accountInfo.marginPct}% / 35% Hard Max` : "รอข้อมูล Options Account"} />
           <MetricCard label="Available Margin" value={accountInfo ? fmtUSD(accountInfo.availableBalance, 2) : "N/A"} color={T.green} sub={accountInfo ? `Balance ${fmtUSD(accountInfo.balance, 2)}` : "ยังประเมิน Capacity ไม่ได้"} />
           <MetricCard label="Unrealized P&L" value={hasPositionData ? `${totalPnl > 0 ? "+" : ""}${fmtUSD(totalPnl, 2)}` : "N/A"} color={hasPositionData ? pnlColor(totalPnl) : T.textMuted} sub={hasPositionData ? "รวมทุก position" : "รอข้อมูล Positions"} />
           <MetricCard label="Theta / Day" value={hasPositionData ? `+$${totalTheta < 1 ? totalTheta.toFixed(2) : totalTheta.toFixed(1)}` : "N/A"} color={hasPositionData ? T.green : T.textMuted} sub={hasPositionData ? "ค่าประมาณรายวัน" : "รอข้อมูล Greeks"} />
@@ -592,7 +592,7 @@ export default function App() {
               </span>
             </div>
             <div style={{ color: T.textSecondary, fontSize: 13, lineHeight: 1.6, fontFamily: "'Inter', sans-serif" }}>
-              ระบบถูกออกแบบเพื่อสร้าง <strong>Optimal Capital Velocity & High Yield Harvesting</strong> โดยมี 3 Risk Profiles ให้เลือกใช้ตามสภาวะตลาด พร้อมระบบคุม Tail Risk และ Margin 30% Absolute Cap
+              ระบบถูกออกแบบเพื่อสร้าง <strong>Optimal Capital Velocity & High Yield Harvesting</strong> โดยมี 3 Risk Profiles ให้เลือกใช้ตามสภาวะตลาด พร้อมระบบคุม Tail Risk, Margin 30% Caution และ 35% Hard Cap
             </div>
           </div>
 
@@ -602,15 +602,15 @@ export default function App() {
               color: T.green,
               items: [
                 "🛡️ CONSERVATIVE: Delta 0.15–0.18 | DTE 18–25 วัน | TP 50% | เน้นระยะห่าง Strike และลด Gamma Risk",
-                "⚡ BALANCED ALPHA: Delta 0.20–0.24 | DTE 12–20 วัน | TP 45% | ความเสี่ยงและ Premium ระดับกลาง",
-                "🔥 HIGH YIELD HUNTER: Delta 0.25–0.28 | DTE 7–14 วัน | TP 40% | Premium สูงขึ้นพร้อม Gamma/Tail Risk ที่สูงขึ้น",
+                "⚡ BALANCED ALPHA: Delta 0.20–0.24 | DTE 12–20 วัน | TP 50% | ความเสี่ยงและ Premium ระดับกลาง",
+                "🔥 HIGH YIELD HUNTER: Delta 0.25–0.28 | DTE 7–14 วัน | TP 50% | Premium สูงขึ้นพร้อม Gamma/Tail Risk ที่สูงขึ้น",
               ],
             },
             {
               title: "2. FAST THETA DECAY & DYNAMIC TP (การเร่งรอบหมุนเงินทุน)",
               color: T.blue,
               items: [
-                "Dynamic Take Profit: ปิดทำกำไรทันทีเมื่อถึงเป้าหมาย 40–50% เพื่อปลดล็อค Margin ไปเปิดสัญญาใหม่",
+                "Dynamic Take Profit: ปิดทำกำไรเมื่อถึงเป้าหมาย 50% เพื่อปลดล็อค Margin ไปเปิดสัญญาใหม่",
                 "Quick TP Velocity: ปิดทำกำไรเมื่อได้ 30% ภายใน 4 วันแรก (Capital Velocity Booster)",
                 "DTE Exit (Gamma Defense): ปิด Position ทันทีเมื่อเหลือ DTE ≤ 2 วัน (ห้ามถือลุ้นจนหมดอายุ)",
               ],
@@ -620,7 +620,7 @@ export default function App() {
               color: T.purple,
               items: [
                 "Per Position Allocation: Maximum 3.5% ของพอร์ตต่อชุด",
-                "Total Margin Usage: Maximum 30% ของพอร์ต (เป้าหมายปกติ 10–25% / 30% เป็น Absolute Cap)",
+                "Total Margin Usage: เป้าหมายปกติ 10–30% / ช่วง 30–35% ลดขนาดใหม่ 50% / 35% เป็น Absolute Cap",
                 "Total Portfolio Risk: Worst-Case Stress Risk รวมทุก Position ห้ามเกิน 10% ของพอร์ต",
                 "Net Portfolio Delta: |Net Delta| ≤ 0.18 BTC ต่อ 1 BTC NAV (หากเกิน 0.25 → NO NEW ENTRY)",
               ],

@@ -28,7 +28,7 @@ export function determineOptimalMarketProfile(marketContext = {}, accountInfo = 
     tag = "🛡️ CONSERVATIVE (DEFENSIVE)";
     tagColor = "#38bdf8";
     if (marginPct >= 22) {
-      rationale = `Margin ในพอร์ตค่อนข้างสูง (${marginPct}% / 30%) — ระบบเลือกแผน Conservative เพื่อจำกัดความเสี่ยง`;
+      rationale = `Margin ในพอร์ตค่อนข้างสูง (${marginPct}% / ${STRATEGY_CONFIG.sizing.maxTotalMarginPct}% Hard Max) — ระบบเลือกแผน Conservative เพื่อจำกัดความเสี่ยง`;
     } else {
       rationale = `${regime.reasons.join(" — ")} เลือก Conservative Strangle และลดขนาดตาม Regime`;
     }

@@ -26,7 +26,7 @@ export const RISK_PROFILES = {
     dtePreferredMax: 20,
     dteMin: 10,
     dteMax: 28,
-    takeProfitPct: 45,
+    takeProfitPct: 50,
   },
   HIGH_YIELD: {
     key: "HIGH_YIELD",
@@ -39,7 +39,7 @@ export const RISK_PROFILES = {
     dtePreferredMax: 14,
     dteMin: 7,
     dteMax: 21,
-    takeProfitPct: 40,
+    takeProfitPct: 50,
   },
 };
 
@@ -96,7 +96,8 @@ export const STRATEGY_CONFIG = {
   // 6. Position & Portfolio Sizing
   sizing: {
     maxCapitalPerTradePct: 3.5,
-    maxTotalMarginPct: 30.0,
+    cautionMarginPct: 30.0,       // Above this level, halve new-position size
+    maxTotalMarginPct: 35.0,      // Absolute hard ceiling for naked short premium
     maxTotalPortfolioRiskPct: 10.0,
     defaultLotSize: 0.01,
   },
@@ -109,7 +110,7 @@ export const STRATEGY_CONFIG = {
 
   // 8. Dynamic Take Profit Rules
   exit: {
-    mainTpPct: 45,          // 45% of original premium -> CLOSE & Rotate
+    mainTpPct: 50,          // 50% of original premium -> CLOSE & Rotate
     quickTpPct: 30,         // 30% within <= 4 calendar days -> CLOSE
     quickTpDays: 4,
     dteStop: 2,

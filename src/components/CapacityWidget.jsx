@@ -1,6 +1,7 @@
 import { T } from "../tokens.js";
 import { Pill } from "./Pill.jsx";
 import { fmtUSD } from "../utils.js";
+import { STRATEGY_CONFIG } from "../config/strategyConfig.js";
 
 export function CapacityWidget({ capacity }) {
   if (!capacity) return null;
@@ -107,10 +108,10 @@ export function CapacityWidget({ capacity }) {
             MARGIN USED
           </div>
           <div style={{
-            color: marginPct > 35 ? T.amber : T.textPrimary,
+            color: marginPct >= STRATEGY_CONFIG.sizing.maxTotalMarginPct ? T.red : marginPct >= STRATEGY_CONFIG.sizing.cautionMarginPct ? T.amber : T.textPrimary,
             fontFamily: T.font, fontSize: 14, fontWeight: 700,
           }}>
-            {marginPct}% <span style={{ fontSize: 10, color: T.textSecondary, fontWeight: 400 }}>/ 30%</span>
+            {marginPct}% <span style={{ fontSize: 10, color: T.textSecondary, fontWeight: 400 }}>/ {STRATEGY_CONFIG.sizing.maxTotalMarginPct}% Hard Max</span>
           </div>
         </div>
 

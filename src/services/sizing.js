@@ -144,7 +144,7 @@ export function calculatePositionSize(accountInfo, opp, btcPrice, sizeMultiplier
   const hasRealAccount = equity > 0;
 
   // ─── Trading Rules v2.0 ──────────────────────────────────────────────────
-  const MAX_MARGIN_PCT = cfg.sizing.maxTotalMarginPct / 100;     // Max 30% of equity as total margin
+  const MAX_MARGIN_PCT = cfg.sizing.maxTotalMarginPct / 100;     // Hard max of equity as total margin
   const PER_TRADE_PCT = (cfg.sizing.maxCapitalPerTradePct / 100) * sizeMultiplier; // Max 3% (adjusted by multiplier)
 
   const maxTotalMargin = hasRealAccount ? equity * MAX_MARGIN_PCT : 0;
@@ -231,7 +231,7 @@ export function calculatePortfolioCapacity(accountInfo, currentPositions = [], b
   // How many lots can physically be opened based on available USDT in Binance wallet?
   const maxLotsByCash = marginPerLot > 0 ? Math.floor(availableBalance / marginPerLot) : 0;
 
-  // How many lots according to strict 30% margin cap rule?
+  // How many lots according to the configured hard margin cap?
   const maxAllowedMargin = equity * (STRATEGY_CONFIG.sizing.maxTotalMarginPct / 100);
   const headroomByRule = Math.max(0, maxAllowedMargin - marginUsed);
   const maxLotsByRule = marginPerLot > 0 ? Math.floor(headroomByRule / marginPerLot) : 0;

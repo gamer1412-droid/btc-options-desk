@@ -60,7 +60,7 @@ export const LiveTickerTape = memo(function LiveTickerTape({
     {
       label: "PROTOCOL RULE",
       value: "SURVIVE FIRST, PROFIT SECOND",
-      change: "MAX 30% MARGIN / 100% DISCIPLINE",
+      change: "30% CAUTION / 35% HARD MAX MARGIN",
       color: T.amber,
       badge: "RULE",
     },

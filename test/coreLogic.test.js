@@ -76,9 +76,19 @@ test("position sizing does not claim affordability without account data", () => 
   assert.equal(sizing.lots.some(lot => lot.canAfford), false);
 });
 
-test("portfolio capacity enforces the 30 percent margin ceiling", () => {
-  const capacity = calculatePortfolioCapacity(
+test("portfolio capacity allows the caution zone but enforces the 35 percent hard ceiling", () => {
+  const cautionCapacity = calculatePortfolioCapacity(
     { equity: 10_000, availableBalance: 5_000, marginUsed: 3_100, marginPct: 31 },
+    [],
+    100_000,
+    { change24h: 1 },
+    [],
+  );
+  assert.notEqual(cautionCapacity.verdict, "BLOCKED");
+  assert.ok(cautionCapacity.remainingLots > 0);
+
+  const capacity = calculatePortfolioCapacity(
+    { equity: 10_000, availableBalance: 5_000, marginUsed: 3_600, marginPct: 36 },
     [],
     100_000,
     { change24h: 1 },
@@ -191,19 +201,19 @@ test("scanner produces no entry opportunities in a no-trade regime", () => {
   assert.deepEqual(results, []);
 });
 
-test("position alerts use the configured 45 percent take-profit target", () => {
+test("position alerts use the configured 50 percent take-profit target", () => {
   const alerts = checkAlerts([{
     id: "BTC-300101-90000-P",
     type: "Short Put",
     premium: 100,
-    currentPrice: 55,
-    pnl: 45,
+    currentPrice: 50,
+    pnl: 50,
     dte: 10,
     delta: -0.2,
   }], new Set(), DEFAULT_ALERT_PREFERENCES);
   assert.equal(alerts.length, 1);
   assert.equal(alerts[0].alertLevel, "TAKE_PROFIT");
-  assert.match(alerts[0].reason, />= 45%/);
+  assert.match(alerts[0].reason, />= 50%/);
 });
 
 test("server cron formats and sends entry signals to Telegram", async () => {
