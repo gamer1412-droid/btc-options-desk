@@ -168,7 +168,7 @@ export function AlertSettingsModal({
                 ALERT & NOTIFICATION ENGINE
               </div>
               <div style={{ fontSize: 11, color: T.green, fontFamily: T.font, fontWeight: 700 }}>
-                LIVE BROWSER ALERTS + SERVER CRON v2.5
+                LIVE BROWSER ALERTS + SERVER CRON v3.0
               </div>
             </div>
           </div>

@@ -5,6 +5,9 @@ import { markPaperTrade } from "../src/services/paperTrading.js";
 import { calculatePortfolioCapacity, calculatePortfolioStress, calculatePositionSize } from "../src/services/sizing.js";
 import { mapBinancePosition } from "../src/services/binance.js";
 import { requireAppAuth, requireCronAuth } from "../lib/security.js";
+import { calculateEMA, calculateRealizedVol, buildMarketIndicators } from "../lib/marketIndicators.js";
+import { classifyMarketRegime, stabilizeMarketRegime } from "../src/services/marketRegime.js";
+import { scanEntryOpportunities } from "../src/services/scanner.js";
 
 test("normalizes scanner premium per BTC and calculates strangle breakevens", () => {
   const setup = normalizePayoffSetup({
@@ -111,4 +114,77 @@ test("cron always requires CRON_SECRET", () => {
   assert.equal(responseStatus, 401);
   assert.equal(requireCronAuth({ headers: { authorization: "Bearer cron-test-secret" } }, response), true);
   if (previous == null) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = previous;
+});
+
+test("market indicators calculate EMA and annualized realized volatility", () => {
+  const closes = Array.from({ length: 60 }, (_, index) => 100 + index);
+  assert.ok(calculateEMA(closes, 20) > 140);
+  assert.ok(calculateRealizedVol(closes, 30) > 0);
+
+  const klines = closes.map((close, index) => [index, close - 1, close + 2, close - 2, close]);
+  const indicators = buildMarketIndicators(klines, 160);
+  assert.ok(Number.isFinite(indicators.ema50));
+  assert.ok(Number.isFinite(indicators.adx14));
+  assert.ok(Number.isFinite(indicators.realizedVol30));
+});
+
+test("regime engine selects range high IV and limits strategy to strangle", () => {
+  const regime = classifyMarketRegime({
+    price: 100_000,
+    change24h: 0.5,
+    ema20: 99_500,
+    ema50: 99_000,
+    distFromEMA20: 0.5,
+    distFromEMA50: 1,
+    adx14: 16,
+    realizedVol7: 38,
+    realizedVol30: 40,
+    marketIv: 55,
+  });
+  assert.equal(regime.regime, "RANGE_HIGH_IV");
+  assert.deepEqual(regime.allowedStrategies, ["STRANGLE"]);
+  assert.equal(regime.isNoTrade, false);
+});
+
+test("regime engine fails closed during crisis and when data is incomplete", () => {
+  const crisis = classifyMarketRegime({
+    price: 100_000,
+    change24h: -8,
+    ema20: 105_000,
+    ema50: 106_000,
+    distFromEMA20: -4.8,
+    distFromEMA50: -5.7,
+    adx14: 35,
+    realizedVol7: 110,
+    realizedVol30: 60,
+    marketIv: 90,
+  });
+  assert.equal(crisis.regime, "CRISIS");
+  assert.equal(crisis.isNoTrade, true);
+  assert.equal(classifyMarketRegime({ price: 100_000 }).regime, "DATA_INCOMPLETE");
+});
+
+test("risk-on regime transitions require confirmation but no-trade is immediate", () => {
+  const base = classifyMarketRegime({ price: 100_000 });
+  const bull = {
+    regime: "BULL_TREND", label: "BULL TREND", color: "#0f0", confidence: 80,
+    allowedStrategies: ["SHORT_PUT"], sizeMultiplier: 0.75, isNoTrade: false, reasons: [],
+  };
+  let state = stabilizeMarketRegime(base);
+  state = stabilizeMarketRegime(bull, state, 3);
+  assert.equal(state.stable.regime, "DATA_INCOMPLETE");
+  state = stabilizeMarketRegime(bull, state, 3);
+  state = stabilizeMarketRegime(bull, state, 3);
+  assert.equal(state.stable.regime, "BULL_TREND");
+
+  const crisis = { ...bull, regime: "CRISIS", label: "CRISIS", isNoTrade: true, allowedStrategies: [], sizeMultiplier: 0 };
+  state = stabilizeMarketRegime(crisis, state, 3);
+  assert.equal(state.stable.regime, "CRISIS");
+});
+
+test("scanner produces no entry opportunities in a no-trade regime", () => {
+  const marks = [{ symbol: "BTC-300101-90000-P", delta: -0.2, theta: -20, markPrice: 1000, markIV: 0.6 }];
+  const noTradeRegime = classifyMarketRegime({ price: 100_000 });
+  const results = scanEntryOpportunities(marks, 100_000, 60, [], { regime: noTradeRegime });
+  assert.deepEqual(results, []);
 });

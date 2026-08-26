@@ -19,6 +19,7 @@ import { loadPaperTrades } from "./services/paperTrading.js";
 import { SoundFX } from "./services/soundFx.js";
 import { RISK_PROFILES } from "./config/strategyConfig.js";
 import { getApiAuthHeaders, saveApiAccessToken } from "./services/apiClient.js";
+import { classifyMarketRegime, stabilizeMarketRegime } from "./services/marketRegime.js";
 
 import { MetricCard } from "./components/MetricCard.jsx";
 import { Pill } from "./components/Pill.jsx";
@@ -52,7 +53,7 @@ export default function App() {
   const [positions, setPositions]               = useState([]);
   const [opportunities, setOpportunities]       = useState([]);
   const [btcPrice, setBtcPrice]                 = useState(null);
-  const [marketContext, setMarketContext]       = useState({ price: null, change24h: null, ma20: null, distFromMA20: null, marketIv: null, ivRank: null });
+  const [marketContext, setMarketContext]       = useState({ price: null, change24h: null, ma20: null, distFromMA20: null, marketIv: null, ivRank: null, regime: null });
   const [marketIv, setMarketIv]                 = useState(null);
   const [optionMarks, setOptionMarks]           = useState([]);
   const [connError, setConnError]               = useState(null);
@@ -73,6 +74,7 @@ export default function App() {
 
   const alertedIdsRef = useRef(getPersistedAlerts(ALERT_STORAGE_KEY));
   const alertedEntryIdsRef = useRef(getPersistedAlerts(ENTRY_STORAGE_KEY));
+  const regimeStateRef = useRef(null);
 
   // Refresh active paper trades count
   const refreshPaperCount = useCallback(() => {
@@ -128,8 +130,22 @@ export default function App() {
         change24h: marketData.change24h ?? null,
         ma20: marketData.ma20 ?? null,
         distFromMA20: marketData.distFromMA20 ?? null,
+        ema20: marketData.ema20 ?? marketData.ma20 ?? null,
+        ema50: marketData.ema50 ?? null,
+        distFromEMA20: marketData.distFromEMA20 ?? marketData.distFromMA20 ?? null,
+        distFromEMA50: marketData.distFromEMA50 ?? null,
+        adx14: marketData.adx14 ?? null,
+        realizedVol7: marketData.realizedVol7 ?? null,
+        realizedVol30: marketData.realizedVol30 ?? null,
         marketIv: currentMarketIv,
         ivRank: null,
+      };
+      const candidateRegime = classifyMarketRegime(updatedMarketContext);
+      regimeStateRef.current = stabilizeMarketRegime(candidateRegime, regimeStateRef.current, 3);
+      updatedMarketContext.regime = {
+        ...regimeStateRef.current.stable,
+        pendingRegime: regimeStateRef.current.pendingRegime,
+        pendingCount: regimeStateRef.current.pendingCount,
       };
       setMarketContext(updatedMarketContext);
 
@@ -392,7 +408,7 @@ export default function App() {
                 background: alertPrefs.enabled ? T.green : T.border,
                 color: "#05080c", borderRadius: 4, padding: "1px 4px", fontSize: 9, fontWeight: 900
               }}>
-                v2.5
+                v3.0
               </span>
             </button>
           </div>
@@ -497,7 +513,7 @@ export default function App() {
             setTab("rules");
           }}
         >
-          🛡️ RULES v2.5
+          🛡️ RULES v3.0
         </button>
       </div>
 
@@ -562,7 +578,7 @@ export default function App() {
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
               <span style={{ fontSize: 16 }}>🛡️</span>
               <span style={{ color: T.green, fontFamily: T.font, fontWeight: 700, fontSize: 13, letterSpacing: 2 }}>
-                BTC OPTION DESK — PRODUCTION TRADING RULES & YIELD BOOST SPECIFICATION v2.5
+                BTC OPTION DESK — PRODUCTION TRADING RULES & MARKET REGIME SPECIFICATION v3.0
               </span>
             </div>
             <div style={{ color: T.textSecondary, fontSize: 13, lineHeight: 1.6, fontFamily: "'Inter', sans-serif" }}>

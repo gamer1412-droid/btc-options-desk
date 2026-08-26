@@ -4,6 +4,8 @@
 import crypto from "crypto";
 import { requireCronAuth } from "../lib/security.js";
 import { claimAlert } from "../lib/alertState.js";
+import { buildMarketIndicators } from "../lib/marketIndicators.js";
+import { classifyMarketRegime } from "../src/services/marketRegime.js";
 
 const BINANCE_OPTIONS_BASE = "https://eapi.binance.com";
 const BINANCE_SPOT_BASE = "https://api.binance.com";
@@ -55,6 +57,8 @@ async function sendTelegramMessage(type, data) {
 ━━━━━━━━━━━━━━━━━━━━━
 ₿ *BTC Spot:* $${Number(d.btcPrice || 0).toLocaleString()} (${d.change24h >= 0 ? "+" : ""}${d.change24h}%)
 📈 *Chain Avg IV:* ${d.marketIv ?? "N/A"}% | *Port Delta:* \`${d.netDelta || 0}\` (${deltaPosture})
+🧭 *Market Regime:* ${d.regimeLabel || "DATA INCOMPLETE"} (${d.regimeConfidence ?? 0}%)
+🚦 *New Entry:* ${d.regimeAction === "NO_TRADE" ? "⛔ NO_TRADE" : "✅ " + d.regimeAction}
 
 💼 *Portfolio Health:*
   • สัญญาเปิดอยู่: *${d.positionCount || 0} Positions*
@@ -129,7 +133,7 @@ export default async function handler(req, res) {
     // 1. Fetch Market Context & Marks
     const [tickerRes, klinesRes, marksRes] = await Promise.all([
       fetch(`${BINANCE_SPOT_BASE}/api/v3/ticker/24hr?symbol=BTCUSDT`),
-      fetch(`${BINANCE_SPOT_BASE}/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=20`),
+      fetch(`${BINANCE_SPOT_BASE}/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=120`),
       fetch(`${BINANCE_OPTIONS_BASE}/eapi/v1/mark?underlying=BTCUSDT`).catch(() => ({ json: async () => [] })),
     ]);
 
@@ -139,11 +143,7 @@ export default async function handler(req, res) {
 
     const currentBtcPrice = parseFloat(ticker.lastPrice) || 0;
     const change24h = parseFloat(ticker.priceChangePercent) || 0;
-    let ma20 = null;
-    if (Array.isArray(klines) && klines.length > 0) {
-      const closes = klines.map(k => parseFloat(k[4])).filter(v => !isNaN(v));
-      if (closes.length > 0) ma20 = closes.reduce((a, b) => a + b, 0) / closes.length;
-    }
+    const indicators = buildMarketIndicators(klines, currentBtcPrice);
 
     let avgMarketIv = null;
     const marksMap = new Map();
@@ -158,11 +158,19 @@ export default async function handler(req, res) {
     const marketContext = {
       price: currentBtcPrice,
       change24h: Math.round(change24h * 100) / 100,
-      ma20: ma20 ? Math.round(ma20) : null,
-      distFromMA20: ma20 ? Math.round(((currentBtcPrice - ma20) / ma20) * 1000) / 10 : 0,
+      ma20: indicators.ema20 ?? null,
+      distFromMA20: indicators.distFromEMA20 ?? null,
+      ema20: indicators.ema20 ?? null,
+      ema50: indicators.ema50 ?? null,
+      distFromEMA20: indicators.distFromEMA20 ?? null,
+      distFromEMA50: indicators.distFromEMA50 ?? null,
+      adx14: indicators.adx14 ?? null,
+      realizedVol7: indicators.realizedVol7 ?? null,
+      realizedVol30: indicators.realizedVol30 ?? null,
       marketIv: avgMarketIv,
       ivRank: null,
     };
+    const marketRegime = classifyMarketRegime(marketContext);
 
     // 2. Fetch User Positions & Account if API Keys are provided
     let positions = [];
@@ -322,6 +330,9 @@ export default async function handler(req, res) {
         minDte: minDte === 999 ? 0 : minDte,
         criticalCount,
         marginRatio: accountInfo ? accountInfo.marginRatio : 0,
+        regimeLabel: marketRegime.label,
+        regimeConfidence: marketRegime.confidence,
+        regimeAction: marketRegime.action,
       };
 
       await sendTelegramMessage("daily_briefing", briefingData);

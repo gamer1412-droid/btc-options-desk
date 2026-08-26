@@ -20,6 +20,7 @@
 
 import crypto from "crypto";
 import { requireAppAuth, enforceRateLimit } from "../lib/security.js";
+import { buildMarketIndicators } from "../lib/marketIndicators.js";
 
 const BINANCE_OPTIONS_BASE = "https://eapi.binance.com";
 const BINANCE_SPOT_BASE = "https://api.binance.com";
@@ -73,32 +74,31 @@ export default async function handler(req, res) {
       }
 
       case "btcMarketContext": {
-        // Public endpoint — fetch 24h ticker and 20 daily klines for MA20 regime calculation
+        // Public endpoint — enough daily history for EMA50, ADX14 and realized volatility.
         const [tickerRes, klinesRes] = await Promise.all([
           fetch(`${BINANCE_SPOT_BASE}/api/v3/ticker/24hr?symbol=BTCUSDT`),
-          fetch(`${BINANCE_SPOT_BASE}/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=20`),
+          fetch(`${BINANCE_SPOT_BASE}/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=120`),
         ]);
+        if (!tickerRes.ok || !klinesRes.ok) throw new Error("Binance market context unavailable");
         const ticker = await tickerRes.json();
         const klines = await klinesRes.json();
-
-        let ma20 = null;
-        let distFromMA20 = 0;
         const currentPrice = parseFloat(ticker.lastPrice);
         const change24h = parseFloat(ticker.priceChangePercent);
-
-        if (Array.isArray(klines) && klines.length > 0) {
-          const closes = klines.map(k => parseFloat(k[4])).filter(v => !isNaN(v));
-          if (closes.length > 0) {
-            ma20 = closes.reduce((a, b) => a + b, 0) / closes.length;
-            distFromMA20 = ((currentPrice - ma20) / ma20) * 100;
-          }
-        }
+        const indicators = buildMarketIndicators(klines, currentPrice);
+        const rounded = value => Number.isFinite(value) ? Math.round(value * 10) / 10 : null;
 
         return res.status(200).json({
           price: currentPrice,
           change24h: Math.round(change24h * 100) / 100,
-          ma20: ma20 ? Math.round(ma20) : null,
-          distFromMA20: Math.round(distFromMA20 * 10) / 10,
+          ma20: Number.isFinite(indicators.ema20) ? Math.round(indicators.ema20) : null,
+          distFromMA20: rounded(indicators.distFromEMA20),
+          ema20: Number.isFinite(indicators.ema20) ? Math.round(indicators.ema20) : null,
+          ema50: Number.isFinite(indicators.ema50) ? Math.round(indicators.ema50) : null,
+          distFromEMA20: rounded(indicators.distFromEMA20),
+          distFromEMA50: rounded(indicators.distFromEMA50),
+          adx14: rounded(indicators.adx14),
+          realizedVol7: rounded(indicators.realizedVol7),
+          realizedVol30: rounded(indicators.realizedVol30),
         });
       }
 

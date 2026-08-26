@@ -5,6 +5,7 @@
 // 3. STRANGLE (Standard Delta-Neutral Strangle)
 
 import { STRATEGY_CONFIG } from "../config/strategyConfig.js";
+import { classifyMarketRegime } from "./marketRegime.js";
 
 /**
  * Evaluates an entry opportunity against strategy rules according to its strategy type.
@@ -26,6 +27,39 @@ export function evaluateEntryRules(opp, marketContext = {}, accountInfo = null, 
   const strategy = opp.strategy || "STRANGLE";
   const isShortPut = strategy === "SHORT_PUT";
   const isSkewed = strategy === "SKEWED_STRANGLE";
+
+  // ── Market Regime Gate (fail closed) ────────────────────────────────────
+  const regime = marketContext.regime?.regime ? marketContext.regime : classifyMarketRegime(marketContext);
+  if (regime.isNoTrade) {
+    isBlocked = true;
+    sizeMultiplier = 0;
+    checks.push({
+      rule: "Market Regime Gate",
+      status: "BLOCKED",
+      message: `${regime.label} (${regime.confidence}%) — งดเปิดสถานะใหม่`,
+      icon: "⛔",
+    });
+    reasons.push(`⛔ Regime ${regime.label}: ${regime.reasons[0]}`);
+  } else if (!regime.allowedStrategies.includes(strategy)) {
+    isBlocked = true;
+    sizeMultiplier = 0;
+    checks.push({
+      rule: "Market Regime Gate",
+      status: "BLOCKED",
+      message: `${strategy} ไม่เหมาะกับ ${regime.label}`,
+      icon: "⛔",
+    });
+    reasons.push(`⛔ Regime อนุญาตเฉพาะ ${regime.allowedStrategies.join(", ") || "NO_TRADE"}`);
+  } else {
+    sizeMultiplier *= regime.sizeMultiplier;
+    checks.push({
+      rule: "Market Regime Gate",
+      status: regime.sizeMultiplier < 1 ? "WARNING" : "PASS",
+      message: `${regime.label} (${regime.confidence}%) — Size x${regime.sizeMultiplier.toFixed(2)}`,
+      icon: regime.sizeMultiplier < 1 ? "⚠️" : "✅",
+    });
+    if (regime.sizeMultiplier < 1) hasWarning = true;
+  }
 
   // ── 0. Portfolio Holding Check ──────────────────────────────────────────
   if (opp.isFullyHeld) {

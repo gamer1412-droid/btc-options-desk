@@ -1,8 +1,10 @@
 import { STRATEGY_CONFIG, RISK_PROFILES } from "../config/strategyConfig.js";
+import { classifyMarketRegime, MARKET_REGIMES } from "./marketRegime.js";
 
 // ─── Dynamic Market Regime & Optimal Profile Selector ─────────────────────────
 export function determineOptimalMarketProfile(marketContext = {}, accountInfo = null, currentPositions = []) {
   const { distFromMA20 = null, change24h = null, marketIv = null } = marketContext;
+  const regime = marketContext.regime?.regime ? marketContext.regime : classifyMarketRegime(marketContext);
   const hasMarketData = [distFromMA20, change24h, marketIv].every(v => v != null && Number.isFinite(Number(v)));
   const absDist = hasMarketData ? Math.abs(Number(distFromMA20)) : 0;
   const absChange = hasMarketData ? Math.abs(Number(change24h)) : 0;
@@ -14,44 +16,29 @@ export function determineOptimalMarketProfile(marketContext = {}, accountInfo = 
   let tag = "⚡ BALANCED ALPHA";
   let tagColor = "#00f0a8";
 
-  if (!hasMarketData) {
+  if (regime.isNoTrade) {
     chosenKey = "CONSERVATIVE";
-    tag = "⚪ DATA INCOMPLETE";
-    tagColor = "#94a3b8";
-    rationale = "ข้อมูลราคา, MA20 หรือ Option IV ยังไม่ครบ ระบบจึงไม่เลือกโหมด High Yield และไม่ควรใช้ผลลัพธ์เพื่อเปิด Position";
+    tag = `⛔ ${regime.label}`;
+    tagColor = regime.color;
+    rationale = `${regime.reasons.join(" — ")} ระบบเลือก NO_TRADE และไม่ส่งสัญญาณเปิดสถานะใหม่`;
   }
   // 1. CONSERVATIVE TRIGGER: High Volatility, Extreme Distance, Bearish Dump, Extreme IV, or High Margin
-  else if (absChange >= 4.0 || absDist >= 8.5 || distFromMA20 < -6.0 || currentMarketIv >= 70 || marginPct >= 22) {
+  else if (marginPct >= 22 || regime.regime === MARKET_REGIMES.RANGE_HIGH_IV) {
     chosenKey = "CONSERVATIVE";
     tag = "🛡️ CONSERVATIVE (DEFENSIVE)";
     tagColor = "#38bdf8";
     if (marginPct >= 22) {
       rationale = `Margin ในพอร์ตค่อนข้างสูง (${marginPct}% / 30%) — ระบบเลือกแผน Conservative เพื่อจำกัดความเสี่ยง`;
-    } else if (distFromMA20 != null && distFromMA20 < -6.0) {
-      rationale = `BTC หลุดต่ำกว่าเส้น MA20 (${distFromMA20.toFixed(1)}%) — ระบบเลือกระยะปลอดภัยกว้างพิเศษ (Delta 0.15–0.18, DTE 18–25 วัน)`;
-    } else if (absChange >= 4.0 || absDist >= 8.5) {
-      rationale = `ความผันผวนของราคา 24h สูง (±${absChange.toFixed(1)}%) — ระบบเลือกแผน Conservative เพื่อ Safe Buffer สูงสุด`;
     } else {
-      rationale = `ค่าเฉลี่ย IV ของ Option Chain สูงมาก (${currentMarketIv}%) — เลือกระยะปลอดภัยไกลพิเศษเพื่อป้องกัน Tail Risk`;
+      rationale = `${regime.reasons.join(" — ")} เลือก Conservative Strangle และลดขนาดตาม Regime`;
     }
   }
-  // 2. HIGH_YIELD TRIGGER: Stable Sideway / Low Volatility with Healthy IV & Low Margin
-  else if (absDist <= 4.0 && absChange <= 2.2 && currentMarketIv >= 32 && marginPct < 16) {
-    chosenKey = "HIGH_YIELD";
-    tag = "🔥 HIGH YIELD (ACCELERATED)";
-    tagColor = "#f59e0b";
-    rationale = `ตลาดอยู่ในกรอบ Sideway (±${absDist.toFixed(1)}% จาก MA20) และ Chain IV ${currentMarketIv}% — ระบบเลือกกรอบ Delta/DTE แบบ High Yield แต่ยังต้องตรวจ bid/ask และ Margin จริงก่อนเทรด`;
-  }
-  // 3. BALANCED ALPHA: Trending / Standard Healthy Alpha Regime (Sweet Spot)
+  // Bull trend: directional premium only. High-yield is never auto-selected.
   else {
     chosenKey = "BALANCED_ALPHA";
     tag = "⚡ BALANCED ALPHA";
     tagColor = "#00f0a8";
-    if (distFromMA20 != null && distFromMA20 > 4.0) {
-      rationale = `BTC มี Momentum ขาขึ้นแข็งแกร่ง (+${distFromMA20.toFixed(1)}% จาก MA20) — ระบบเลือกกรอบ Balanced Alpha และยังต้องตรวจ Upside Call Risk ก่อนเข้า`;
-    } else {
-      rationale = `สภาวะตลาดสมดุลและ Chain IV ปัจจุบัน ${currentMarketIv}% — ระบบเลือกกรอบ Balanced Alpha เป็นค่าเริ่มต้น`;
-    }
+    rationale = `${regime.reasons.join(" — ")} เลือกเฉพาะกลยุทธ์ Bullish ที่ผ่านกฎและลดขนาดตาม Regime`;
   }
 
   const profile = RISK_PROFILES[chosenKey] || RISK_PROFILES.BALANCED_ALPHA;
@@ -59,15 +46,19 @@ export function determineOptimalMarketProfile(marketContext = {}, accountInfo = 
   return {
     key: chosenKey,
     profile,
-    tag,
-    tagColor,
+    tag: regime.label,
+    tagColor: regime.color,
     rationale,
+    regime,
     metrics: {
       distFromMA20,
       change24h,
       marketIv: currentMarketIv,
-      dataComplete: hasMarketData,
+      dataComplete: regime.regime !== MARKET_REGIMES.DATA_INCOMPLETE,
       marginPct,
+      confidence: regime.confidence,
+      allowedStrategies: regime.allowedStrategies,
+      isNoTrade: regime.isNoTrade,
     },
   };
 }
@@ -84,6 +75,9 @@ export function scanEntryOpportunities(
   if (!Array.isArray(marksData) || marksData.length === 0 || !btcPrice) {
     return [];
   }
+
+  const regime = marketContext.regime?.regime ? marketContext.regime : classifyMarketRegime({ ...marketContext, marketIv });
+  if (regime.isNoTrade) return [];
 
   // If no profile key is provided or passed dynamically, auto-determine the best profile
   let activeProfileKey = selectedProfileKey;
@@ -170,7 +164,7 @@ export function scanEntryOpportunities(
   }
 
   const results = [];
-  const isBullishRegime = marketContext.distFromMA20 != null && marketContext.distFromMA20 > 7.0;
+  const isBullishRegime = regime.regime === MARKET_REGIMES.BULL_TREND;
 
   for (const [expiry, { puts, calls, dte }] of byExpiry.entries()) {
     const isPreferredDTE = dte >= profile.dtePreferredMin && dte <= profile.dtePreferredMax;
@@ -392,5 +386,8 @@ export function scanEntryOpportunities(
     }
   }
 
-  return results.sort((a, b) => b.score - a.score);
+  return results
+    .filter(opportunity => regime.allowedStrategies.includes(opportunity.strategy))
+    .map(opportunity => ({ ...opportunity, marketRegime: regime.regime, regimeConfidence: regime.confidence }))
+    .sort((a, b) => b.score - a.score);
 }

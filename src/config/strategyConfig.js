@@ -1,5 +1,5 @@
-// ─── Central Strategy Configuration v2.5 (Yield Boost & Multi-Profile) ────────
-// BTC Option Desk — Production Trading Rules Specification v2.5
+// ─── Central Strategy Configuration v3.0 (Regime-Aware Multi-Profile) ────────
+// BTC Option Desk — Production Trading Rules Specification v3.0
 
 export const RISK_PROFILES = {
   CONSERVATIVE: {
@@ -44,7 +44,7 @@ export const RISK_PROFILES = {
 };
 
 export const STRATEGY_CONFIG = {
-  version: "2.5",
+  version: "3.0",
   name: "BTC Option Desk Yield Boost Production Rules",
   activeProfile: "BALANCED_ALPHA",
 

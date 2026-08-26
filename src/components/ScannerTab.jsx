@@ -34,8 +34,9 @@ export function ScannerTab({
   }, [optimalProfile, marketContext, accountInfo, currentPositions]);
 
   const activeProfile = currentOptimal.profile || RISK_PROFILES.BALANCED_ALPHA;
-  const isBullishRegime = marketContext.distFromMA20 != null && marketContext.distFromMA20 > 7.0;
-  const isBearishRegime = marketContext.distFromMA20 != null && marketContext.distFromMA20 < -7.0;
+  const regime = currentOptimal.regime || marketContext.regime;
+  const isBullishRegime = regime?.regime === "BULL_TREND";
+  const isBearishRegime = regime?.regime === "BEAR_TREND";
 
   const handleSendTelegram = async (opp) => {
     SoundFX.playClick();
@@ -77,13 +78,11 @@ export function ScannerTab({
     if (!Array.isArray(opportunities)) return [];
     if (strategyFilter === "ALL") return opportunities;
     if (strategyFilter === "AUTO") {
-      if (isBullishRegime) {
-        return opportunities.filter(o => o.strategy === "SHORT_PUT" || o.strategy === "SKEWED_STRANGLE");
-      }
-      return opportunities.filter(o => o.strategy === "STRANGLE" || o.strategy === "SHORT_PUT");
+      const allowed = regime?.allowedStrategies || [];
+      return opportunities.filter(o => allowed.includes(o.strategy));
     }
     return opportunities.filter(o => o.strategy === strategyFilter);
-  }, [opportunities, strategyFilter, isBullishRegime]);
+  }, [opportunities, strategyFilter, regime]);
 
   // Find index of the first viable top pick (not blocked/held)
   const topPickId = useMemo(() => {
@@ -113,7 +112,7 @@ export function ScannerTab({
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-              <span style={{ fontSize: 18 }}>🧠</span>
+              <span style={{ fontSize: 18 }}>🧭</span>
               <span style={{ color: T.textPrimary, fontFamily: T.fontSans, fontWeight: 900, fontSize: 13, letterSpacing: 1.5 }}>
                 RULE-BASED MARKET REGIME — กรอบกลยุทธ์อัตโนมัติ
               </span>
@@ -128,7 +127,7 @@ export function ScannerTab({
                 fontFamily: T.font,
                 letterSpacing: 1,
               }}>
-                {currentOptimal.tag} {currentOptimal.metrics?.dataComplete ? "(AUTO)" : "(WAIT FOR DATA)"}
+                {regime?.label || currentOptimal.tag} · {regime?.confidence ?? 0}% {currentOptimal.metrics?.dataComplete ? "(AUTO)" : "(WAIT FOR DATA)"}
               </span>
             </div>
 
@@ -146,9 +145,11 @@ export function ScannerTab({
             flexDirection: "column",
             alignItems: "flex-end",
           }}>
-            <div style={{ color: T.textSecondary, fontSize: 10, letterSpacing: 1, fontFamily: T.fontSans }}>PROFILE TARGET (NOT GUARANTEED)</div>
+            <div style={{ color: T.textSecondary, fontSize: 10, letterSpacing: 1, fontFamily: T.fontSans }}>
+              {regime?.isNoTrade ? "REGIME ACTION" : "PROFILE TARGET (NOT GUARANTEED)"}
+            </div>
             <div style={{ color: currentOptimal.tagColor, fontFamily: T.font, fontSize: 18, fontWeight: 900, marginTop: 2 }}>
-              Delta {activeProfile.deltaMin}–{activeProfile.deltaMax} / DTE {activeProfile.dtePreferredMin}–{activeProfile.dtePreferredMax}d
+              {regime?.isNoTrade ? "NO_TRADE" : `Delta ${activeProfile.deltaMin}–${activeProfile.deltaMax} / DTE ${activeProfile.dtePreferredMin}–${activeProfile.dtePreferredMax}d`}
             </div>
           </div>
         </div>
@@ -170,6 +171,20 @@ export function ScannerTab({
           </div>
 
           <div style={{ background: T.bg0, padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.border}` }}>
+            <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>TREND STRENGTH / ADX14</div>
+            <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 13, fontWeight: 700, marginTop: 2 }}>
+              {marketContext.adx14 != null ? `${Number(marketContext.adx14).toFixed(1)} ${marketContext.adx14 >= 25 ? "Trending" : marketContext.adx14 < 20 ? "Range" : "Transition"}` : "N/A"}
+            </div>
+          </div>
+
+          <div style={{ background: T.bg0, padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.border}` }}>
+            <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>REALIZED VOL 7D / 30D</div>
+            <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 13, fontWeight: 700, marginTop: 2 }}>
+              {marketContext.realizedVol7 != null && marketContext.realizedVol30 != null ? `${Number(marketContext.realizedVol7).toFixed(1)}% / ${Number(marketContext.realizedVol30).toFixed(1)}%` : "N/A"}
+            </div>
+          </div>
+
+          <div style={{ background: T.bg0, padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.border}` }}>
             <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>OPTION CHAIN AVG IV</div>
             <div style={{ color: marketIv >= 40 ? T.purple : T.blue, fontFamily: T.font, fontSize: 13, fontWeight: 700, marginTop: 2 }}>
               {marketIv != null ? `${marketIv}% (Current IV, not IV Rank)` : "N/A — รอข้อมูลตลาด"}
@@ -179,14 +194,14 @@ export function ScannerTab({
           <div style={{ background: T.bg0, padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.border}` }}>
             <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>TARGET DELTA / DTE</div>
             <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 13, fontWeight: 700, marginTop: 2 }}>
-              Delta {activeProfile.deltaMin}–{activeProfile.deltaMax} | DTE {activeProfile.dtePreferredMin}–{activeProfile.dtePreferredMax}d
+              {regime?.isNoTrade ? "N/A — NO_TRADE" : `Delta ${activeProfile.deltaMin}–${activeProfile.deltaMax} | DTE ${activeProfile.dtePreferredMin}–${activeProfile.dtePreferredMax}d`}
             </div>
           </div>
 
           <div style={{ background: T.bg0, padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.border}` }}>
             <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>DYNAMIC TP TARGET</div>
             <div style={{ color: T.green, fontFamily: T.font, fontSize: 13, fontWeight: 700, marginTop: 2 }}>
-              {activeProfile.takeProfitPct}% Profit (Auto Rotate)
+              {regime?.isNoTrade ? "N/A — NO_TRADE" : `${activeProfile.takeProfitPct}% Profit (Auto Rotate)`}
             </div>
           </div>
         </div>
@@ -207,7 +222,7 @@ export function ScannerTab({
         border: `1px solid ${T.border}`,
       }}>
         {[
-          { key: "AUTO", label: `🔥 สแกนตามสภาวะตลาด (AUTO)${isBullishRegime ? " — BULLISH" : ""}`, color: T.green },
+          { key: "AUTO", label: `🧭 สแกนตาม Regime (AUTO)${regime?.isNoTrade ? " — NO_TRADE" : isBullishRegime ? " — BULLISH" : ""}`, color: regime?.isNoTrade ? T.red : T.green },
           { key: "SHORT_PUT", label: "🟢 BULLISH SHORT PUT ⭐", color: T.green },
           { key: "SKEWED_STRANGLE", label: "⚡ SKEWED STRANGLE", color: T.blue },
           { key: "STRANGLE", label: "⚖️ SHORT STRANGLE (Sideway)", color: T.purple },
@@ -243,7 +258,9 @@ export function ScannerTab({
       {/* ── Opportunities List (Full Rich Details + Highlighted Top Pick) ───── */}
       {filteredOpps.length === 0 ? (
         <div style={{ padding: 60, textAlign: "center", color: T.textMuted, fontFamily: T.fontSans, fontSize: 13, background: T.bg1, borderRadius: 12, border: `1px solid ${T.border}` }}>
-          ⏳ กำลังสแกนตลาด หรือไม่พบคู่สัญญาในหมวดนี้ที่เข้าเกณฑ์ในขณะนี้...
+          {regime?.isNoTrade
+            ? `⛔ NO_TRADE — ${regime.label}: ${regime.reasons?.[0] || "รอให้ตลาดยืนยันสภาวะใหม่"}`
+            : "⏳ ไม่พบคู่สัญญาที่ผ่านทั้ง Regime และกฎความเสี่ยงในขณะนี้"}
         </div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(440px, 1fr))", gap: 18 }}>
