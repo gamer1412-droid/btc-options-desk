@@ -6,6 +6,7 @@ import { requireCronAuth } from "../lib/security.js";
 import { claimAlert } from "../lib/alertState.js";
 import { buildMarketIndicators } from "../lib/marketIndicators.js";
 import { classifyMarketRegime } from "../src/services/marketRegime.js";
+import { scanEntryOpportunities, determineOptimalMarketProfile } from "../src/services/scanner.js";
 
 const BINANCE_OPTIONS_BASE = "https://eapi.binance.com";
 const BINANCE_SPOT_BASE = "https://api.binance.com";
@@ -124,6 +125,7 @@ export default async function handler(req, res) {
   const results = {
     timestamp: new Date().toISOString(),
     positionsChecked: 0,
+    entrySignalsChecked: 0,
     alertsDispatched: 0,
     briefingDispatched: false,
     errors: [],
@@ -243,7 +245,40 @@ export default async function handler(req, res) {
 
     results.positionsChecked = positions.length;
 
-    // 3. Evaluate Positions for Critical Risk / Take Profit
+    // 3. Server-side Entry Scanner — works even when the dashboard is closed.
+    // The same regime/risk gate as the browser scanner is used here.
+    if (alertsEnabled && Array.isArray(marksData) && marksData.length > 0 && currentBtcPrice > 0) {
+      const serverMarketContext = { ...marketContext, regime: marketRegime };
+      const autoProfile = determineOptimalMarketProfile(serverMarketContext, accountInfo, positions);
+      const opportunities = scanEntryOpportunities(
+        marksData,
+        currentBtcPrice,
+        avgMarketIv,
+        positions,
+        serverMarketContext,
+        autoProfile.key,
+      );
+      results.entrySignalsChecked = opportunities.length;
+
+      // Send at most one best entry signal per cron run, with a persistent cooldown.
+      const bestOpportunity = opportunities[0];
+      if (bestOpportunity) {
+        const entryKey = `entry:${bestOpportunity.id}:${bestOpportunity.strategy}:${marketRegime.regime}`;
+        const shouldSendEntry = await claimAlert(entryKey, 8 * 60 * 60);
+        if (shouldSendEntry) {
+          const signalType = bestOpportunity.strategy === "SHORT_PUT"
+            ? "short_put_signal"
+            : bestOpportunity.strategy === "SKEWED_STRANGLE"
+              ? "skewed_strangle_signal"
+              : "strangle_signal";
+          await sendTelegramMessage(signalType, bestOpportunity);
+          results.alertsDispatched++;
+          results.entrySignalDispatched = bestOpportunity.id;
+        }
+      }
+    }
+
+    // 4. Evaluate Positions for Critical Risk / Take Profit
     for (const pos of positions) {
       if (!alertsEnabled) break;
       const absDelta = Math.abs(pos.delta);
@@ -301,7 +336,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // 4. Daily Briefing Trigger (if requested or at 08:00 UTC / 15:00 UTC)
+    // 5. Daily Briefing Trigger (if requested or at 08:00 UTC / 15:00 UTC)
     const currentUtcHour = new Date().getUTCHours();
     const currentUtcMin = new Date().getUTCMinutes();
     const isScheduledBriefingTime = (currentUtcHour === 1 || currentUtcHour === 8) && currentUtcMin < 15;
