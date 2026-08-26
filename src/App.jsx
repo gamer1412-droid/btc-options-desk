@@ -92,12 +92,22 @@ export default function App() {
         fetch("/api/binance?action=btcMarketContext", { headers: getApiAuthHeaders() })
           .then(res => readApiJson(res, "Market Context"))
           .catch(() => fetch("/api/binance?action=btcPrice", { headers: getApiAuthHeaders() }).then(res => readApiJson(res, "BTC Price"))),
-        fetch("/api/binance?action=optionPositions", { headers: getApiAuthHeaders() }).then(res => readApiJson(res, "Options Positions")),
-        fetch("/api/binance?action=optionMarks", { headers: getApiAuthHeaders() }).then(res => readApiJson(res, "Options Market")),
+        // Private endpoints are optional: keep public market data flowing when
+        // APP_ACCESS_TOKEN or Binance account credentials are not configured.
+        fetch("/api/binance?action=optionPositions", { headers: getApiAuthHeaders() })
+          .then(res => readApiJson(res, "Options Positions"))
+          .catch(error => ({ error: error.message || "Options Positions unavailable" })),
+        fetch("/api/binance?action=optionMarks", { headers: getApiAuthHeaders() })
+          .then(res => readApiJson(res, "Options Market"))
+          .catch(error => ({ error: error.message || "Options Market unavailable" })),
         fetch("/api/binance?action=optionAccount", { headers: getApiAuthHeaders() })
           .then(res => readApiJson(res, "Options Account"))
           .catch(() => null),
       ]);
+
+      const dataWarnings = [];
+      if (posData?.error) dataWarnings.push(`Positions: ${typeof posData.error === "string" ? posData.error : "ยังไม่ได้ตั้งค่าการยืนยันตัวตน"}`);
+      if (marksData?.error) dataWarnings.push(`Option Chain: ${typeof marksData.error === "string" ? marksData.error : "ยังโหลดข้อมูลไม่ได้"}`);
 
       if (Array.isArray(marksData)) setOptionMarks(marksData);
 
@@ -230,7 +240,7 @@ export default function App() {
 
       setLastSync(new Date());
       setDataStatus(parsedAccount ? "live" : "partial");
-      setConnError(null);
+      setConnError(dataWarnings.length > 0 ? dataWarnings.join(" — ") : null);
     } catch (e) {
       setDataStatus("offline");
       setConnError(e.message || "ไม่สามารถโหลดข้อมูลล่าสุดได้");
