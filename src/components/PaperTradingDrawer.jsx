@@ -8,10 +8,12 @@ import {
   clearAllPaperTrades,
   calculatePaperTradeStats,
   savePaperTrades,
+  markPaperTrade,
 } from "../services/paperTrading.js";
 
 export function PaperTradingDrawer({
   btcPrice = 90000,
+  optionMarks = [],
   onClose,
 }) {
   const [trades, setTrades] = useState([]);
@@ -19,27 +21,16 @@ export function PaperTradingDrawer({
   const refreshTrades = useCallback(() => {
     const list = loadPaperTrades();
 
-    // Re-evaluate current PnL for OPEN trades using live btcPrice
-    const updated = list.map(t => {
-      if (t.status === "OPEN") {
-        let simulatedLoss = 0;
-        for (const leg of t.legs || []) {
-          if (leg.type === "PUT" && btcPrice < leg.strike) {
-            simulatedLoss += (leg.strike - btcPrice) * t.size;
-          } else if (leg.type === "CALL" && btcPrice > leg.strike) {
-            simulatedLoss += (btcPrice - leg.strike) * t.size;
-          }
-        }
-        // As time passes or if price stays between strikes, theta decays and trade approaches max initial premium
-        const currentPnl = t.initialPremiumTotal - simulatedLoss;
-        return { ...t, currentPnl };
-      }
-      return t;
-    });
+    const marksMap = new Map(
+      (Array.isArray(optionMarks) ? optionMarks : [])
+        .filter(mark => mark?.symbol)
+        .map(mark => [mark.symbol, mark])
+    );
+    const updated = list.map(t => markPaperTrade(t, marksMap));
 
     setTrades(updated);
     savePaperTrades(updated);
-  }, [btcPrice]);
+  }, [optionMarks]);
 
   useEffect(() => {
     refreshTrades();

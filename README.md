@@ -49,7 +49,7 @@ Vercel Serverless Functions (โฟลเดอร์ `api/`) ทำหน้า
    - ❌ **ห้ามเปิด "Enable Spot & Margin Trading"**
    - ❌ **ห้ามเปิด "Enable Futures" หรือ "Enable European Options"**
    - ❌ **ห้ามเปิด "Enable Withdrawals"** (เงินในบัญชีปลอดภัย 100%)
-4. ในส่วน **IP access restrictions**: เลือก **`Unrestricted (Less Secure)`** ได้เลย เพราะเป็น Read-Only ไม่มีสิทธิ์เทรดหรือถอนเงิน ทำให้ Vercel ดึงข้อมูลได้ตลอด 24 ชม. ไม่ติดบล็อก IP ครับ
+4. เปิด IP restriction หากแผน hosting รองรับ Static Egress IP หากจำเป็นต้องใช้ Dynamic IP ให้คงสิทธิ์ API เป็น Read-Only เท่านั้นและหมุนเวียน key เป็นระยะ
 
 ### 2. เตรียม Groq API Key (ฟรี)
 
@@ -86,10 +86,24 @@ git push -u origin main
    | `TELEGRAM_BOT_TOKEN` | Bot token จาก @BotFather |
    | `TELEGRAM_CHAT_ID` | Chat ID ของคุณ |
    | `ALLOWED_ORIGIN` | URL ของ Vercel app เช่น `https://btc-options-desk-xxxx.vercel.app` |
+   | `APP_ACCESS_TOKEN` | Token แบบสุ่มยาวสำหรับปลดล็อก private dashboard APIs |
+   | `CRON_SECRET` | Secret คนละค่ากับ APP_ACCESS_TOKEN สำหรับ Vercel Cron |
+   | `APP_URL` | URL production ที่ใช้ในปุ่ม Telegram |
+
+   แนะนำเพิ่มเติมสำหรับ Cron ที่ไม่ส่งซ้ำข้าม server instance:
+
+   | Key | Value |
+   |---|---|
+   | `KV_REST_API_URL` | Vercel KV หรือ Upstash Redis REST URL |
+   | `KV_REST_API_TOKEN` | Token ของ KV/Redis |
+   | `CRON_ALERTS_ENABLED` | `true` หรือ `false` |
+   | `CRON_DAILY_BRIEFING_ENABLED` | `true` หรือ `false` |
 
 5. กด **Deploy**
 
-หลัง deploy เสร็จ จะได้ URL แบบ `https://btc-options-desk-xxxx.vercel.app` เข้าได้จากทุกที่ทุกอุปกรณ์
+หลัง deploy เสร็จ เปิด URL แล้วกด **ปลดล็อก Dashboard** และกรอก `APP_ACCESS_TOKEN` ค่า token จะอยู่ใน session ของ browser และหายเมื่อปิด session
+
+> ตาราง Cron ทุก 10 นาทีใน `vercel.json` ต้องใช้แผน Vercel ที่รองรับความถี่ดังกล่าว หากใช้ Hobby ให้เปลี่ยนเป็นอย่างน้อยวันละครั้งหรือใช้ scheduler ภายนอกที่ส่ง `Authorization: Bearer <CRON_SECRET>`
 
 ### 5. ทดสอบ
 
@@ -120,6 +134,8 @@ vercel dev
 | `/api/binance?action=optionOrders` | GET | ประวัติ order 50 รายการล่าสุด |
 | `/api/analyze` | POST | ส่ง `{ prompt }` → ได้ AI analysis กลับมา |
 
+Endpoints ที่อ่านบัญชี, เรียก AI และส่ง Telegram ต้องมี `Authorization: Bearer <APP_ACCESS_TOKEN>` ส่วน market data สาธารณะยังเรียกได้โดยไม่ต้องปลดล็อก
+
 ## ฟีเจอร์ในแอป
 
 - **Live position tracking** — sync กับ Binance ทุก 15 วินาที
@@ -135,3 +151,12 @@ vercel dev
 - Poll ทุก 15 วินาที ไม่ใช่ WebSocket แบบ tick-by-tick — เพียงพอสำหรับติดตาม theta decay รายวัน แต่ไม่เหมาะกับ scalping
 - AI Analysis เป็นเครื่องมือช่วยตัดสินใจ ไม่ใช่คำแนะนำทางการเงิน ควรใช้ประกอบกับดุลยพินิจของคุณเองเสมอ
 - IV ที่แสดงใน dashboard คือ IV เฉลี่ยของตลาด ณ ขณะนั้น ไม่ใช่ IV Rank แบบ 52-สัปดาห์ (ต้องมี database ประวัติ)
+- Annualized ROM ใน Scanner เป็นค่าประมาณจาก Mark Price และ Margin สมมติ ยังไม่รวม bid/ask spread, fees, slippage และ Tail Loss
+- Paper Trading ใช้ mark price ล่าสุดของ option แต่ข้อมูลเก็บใน browser เท่านั้น จึงไม่ใช่ backtest หรือ execution simulator เต็มรูปแบบ
+
+## ตรวจสอบก่อนส่งขึ้น Production
+
+```bash
+npm test
+npm run build
+```

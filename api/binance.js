@@ -19,6 +19,7 @@
 //   GET /api/binance?action=optionMarks       -> mark price / greeks for BTC options
 
 import crypto from "crypto";
+import { requireAppAuth, enforceRateLimit } from "../lib/security.js";
 
 const BINANCE_OPTIONS_BASE = "https://eapi.binance.com";
 const BINANCE_SPOT_BASE = "https://api.binance.com";
@@ -38,7 +39,8 @@ async function signedGet(base, path, params, apiKey, apiSecret) {
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Binance API error ${res.status}: ${body}`);
+    console.error(`Binance API error ${res.status}:`, body.slice(0, 500));
+    throw new Error(`Binance API request failed (${res.status})`);
   }
   return res.json();
 }
@@ -50,12 +52,16 @@ export default async function handler(req, res) {
   const allowedOrigin = process.env.ALLOWED_ORIGIN ?? "*";
   res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (req.method === "OPTIONS") return res.status(200).end();
 
   const { action } = req.query;
   const apiKey = process.env.BINANCE_API_KEY;
   const apiSecret = process.env.BINANCE_API_SECRET;
+
+  const privateActions = new Set(["optionPositions", "optionAccount", "optionOrders"]);
+  if (privateActions.has(action) && !requireAppAuth(req, res)) return;
+  if (!enforceRateLimit(req, res, { key: `binance:${action || "unknown"}`, limit: privateActions.has(action) ? 60 : 120 })) return;
 
   try {
     switch (action) {
@@ -140,6 +146,7 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: `Unknown action: ${action}` });
     }
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    console.error("Binance proxy error:", err.message);
+    return res.status(502).json({ error: "ไม่สามารถโหลดข้อมูลจาก Binance ได้ในขณะนี้" });
   }
 }

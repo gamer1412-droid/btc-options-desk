@@ -2,6 +2,8 @@
 // Runs periodically via Vercel Cron or direct trigger.
 
 import crypto from "crypto";
+import { requireCronAuth } from "../lib/security.js";
+import { claimAlert } from "../lib/alertState.js";
 
 const BINANCE_OPTIONS_BASE = "https://eapi.binance.com";
 const BINANCE_SPOT_BASE = "https://api.binance.com";
@@ -52,7 +54,7 @@ async function sendTelegramMessage(type, data) {
     message = `📊 *DAILY PORTFOLIO BRIEFING — BTC Options Desk*
 ━━━━━━━━━━━━━━━━━━━━━
 ₿ *BTC Spot:* $${Number(d.btcPrice || 0).toLocaleString()} (${d.change24h >= 0 ? "+" : ""}${d.change24h}%)
-📈 *Market IV:* ${d.ivRank || 0}% | *Port Delta:* \`${d.netDelta || 0}\` (${deltaPosture})
+📈 *Chain Avg IV:* ${d.marketIv ?? "N/A"}% | *Port Delta:* \`${d.netDelta || 0}\` (${deltaPosture})
 
 💼 *Portfolio Health:*
   • สัญญาเปิดอยู่: *${d.positionCount || 0} Positions*
@@ -107,16 +109,13 @@ ${d.tacticalAction || (isTP ? "ปิดทำกำไร 50% ตามแผ�
 
 export default async function handler(req, res) {
   // Authorization check for Vercel Cron or custom trigger
-  const cronSecret = process.env.CRON_SECRET;
-  const authHeader = req.headers["authorization"];
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}` && req.query.key !== cronSecret) {
-    // If cronSecret is set but does not match, block
-    return res.status(401).json({ error: "Unauthorized cron request" });
-  }
+  if (!requireCronAuth(req, res)) return;
 
   const apiKey = process.env.BINANCE_API_KEY;
   const apiSecret = process.env.BINANCE_API_SECRET;
   const isBriefingRequested = req.query.briefing === "true";
+  const alertsEnabled = process.env.CRON_ALERTS_ENABLED !== "false";
+  const briefingEnabled = process.env.CRON_DAILY_BRIEFING_ENABLED !== "false";
 
   const results = {
     timestamp: new Date().toISOString(),
@@ -146,11 +145,11 @@ export default async function handler(req, res) {
       if (closes.length > 0) ma20 = closes.reduce((a, b) => a + b, 0) / closes.length;
     }
 
-    let avgIvRank = 0;
+    let avgMarketIv = null;
     const marksMap = new Map();
     if (Array.isArray(marksData) && marksData.length > 0) {
       const ivValues = marksData.map(m => parseFloat(m.markIV)).filter(v => !isNaN(v) && v > 0);
-      if (ivValues.length > 0) avgIvRank = Math.round((ivValues.reduce((s, v) => s + v, 0) / ivValues.length) * 100);
+      if (ivValues.length > 0) avgMarketIv = Math.round((ivValues.reduce((s, v) => s + v, 0) / ivValues.length) * 100);
       for (const m of marksData) {
         if (m.symbol) marksMap.set(m.symbol, m);
       }
@@ -161,7 +160,8 @@ export default async function handler(req, res) {
       change24h: Math.round(change24h * 100) / 100,
       ma20: ma20 ? Math.round(ma20) : null,
       distFromMA20: ma20 ? Math.round(((currentBtcPrice - ma20) / ma20) * 1000) / 10 : 0,
-      ivRank: avgIvRank,
+      marketIv: avgMarketIv,
+      ivRank: null,
     };
 
     // 2. Fetch User Positions & Account if API Keys are provided
@@ -187,6 +187,7 @@ export default async function handler(req, res) {
               const currentPrice = Math.round(markPrice * qty * 100) / 100;
               const delta = Number(p.delta ?? mark.delta ?? 0);
               const theta = Number(p.theta ?? mark.theta ?? 0);
+              const gamma = Number(p.gamma ?? mark.gamma ?? 0);
               let expMs = Number(p.expiryDate) || 0;
               if (!expMs && parts[1]?.length === 6) {
                 const y = 2000 + Number(parts[1].slice(0, 2));
@@ -205,10 +206,13 @@ export default async function handler(req, res) {
                 dte,
                 delta,
                 theta,
+                gamma,
                 premium,
                 currentPrice,
                 pnl,
                 size: qty,
+                positionDelta: delta * qty * (side === "Short" ? -1 : 1),
+                positionGamma: gamma * qty * (side === "Short" ? -1 : 1),
               };
             });
         }
@@ -233,6 +237,7 @@ export default async function handler(req, res) {
 
     // 3. Evaluate Positions for Critical Risk / Take Profit
     for (const pos of positions) {
+      if (!alertsEnabled) break;
       const absDelta = Math.abs(pos.delta);
       const pct = pos.premium > 0 ? ((pos.premium - pos.currentPrice) / pos.premium) * 100 : 0;
 
@@ -272,6 +277,9 @@ export default async function handler(req, res) {
       }
 
       if (triggered) {
+        const alertStateKey = `position:${pos.id}:${triggered.alertLevel}:${triggered.warningReason.split(":")[0]}`;
+        const shouldSend = await claimAlert(alertStateKey, 8 * 60 * 60);
+        if (!shouldSend) continue;
         await sendTelegramMessage("warning", {
           posId: pos.id,
           posType: pos.type,
@@ -290,17 +298,23 @@ export default async function handler(req, res) {
     const currentUtcMin = new Date().getUTCMinutes();
     const isScheduledBriefingTime = (currentUtcHour === 1 || currentUtcHour === 8) && currentUtcMin < 15;
 
-    if (isBriefingRequested || isScheduledBriefingTime) {
+    if (briefingEnabled && (isBriefingRequested || isScheduledBriefingTime)) {
+      const now = new Date();
+      const briefingKey = `briefing:${now.toISOString().slice(0, 10)}:${now.getUTCHours()}`;
+      const shouldSendBriefing = await claimAlert(briefingKey, 20 * 60 * 60);
+      if (!shouldSendBriefing) {
+        return res.status(200).json({ ...results, briefingSkipped: "already_sent" });
+      }
       const totalPnl = positions.reduce((s, p) => s + (p.pnl || 0), 0);
       const totalTheta = positions.reduce((s, p) => s + (Math.abs(p.theta || 0) * (p.size || 1)), 0);
-      const netDelta = positions.reduce((s, p) => s + ((p.delta || 0) * (p.size || 1)), 0);
+      const netDelta = positions.reduce((s, p) => s + (p.positionDelta ?? ((p.delta || 0) * (p.size || 1))), 0);
       const minDte = positions.length > 0 ? Math.min(...positions.map(p => p.dte || 999)) : 0;
       const criticalCount = positions.filter(p => Math.abs(p.delta) >= 0.50 || (p.dte && p.dte <= 2)).length;
 
       const briefingData = {
         btcPrice: currentBtcPrice,
         change24h,
-        ivRank: avgIvRank,
+        marketIv: avgMarketIv,
         positionCount: positions.length,
         totalPnl: Math.round(totalPnl),
         totalTheta: Math.round(totalTheta),

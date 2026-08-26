@@ -18,6 +18,7 @@ import { parseAccountInfo, calculatePortfolioCapacity } from "./services/sizing.
 import { loadPaperTrades } from "./services/paperTrading.js";
 import { SoundFX } from "./services/soundFx.js";
 import { RISK_PROFILES } from "./config/strategyConfig.js";
+import { getApiAuthHeaders, saveApiAccessToken } from "./services/apiClient.js";
 
 import { MetricCard } from "./components/MetricCard.jsx";
 import { Pill } from "./components/Pill.jsx";
@@ -33,14 +34,29 @@ import { AlertSettingsModal } from "./components/AlertSettingsModal.jsx";
 
 const POLL_INTERVAL_MS = 15000; // refresh live data every 15 s
 
+async function readApiJson(response, label) {
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    throw new Error(`${label} ไม่พร้อมใช้งาน (กรุณารันผ่าน Vercel Functions)`);
+  }
+  const data = await response.json();
+  if (!response.ok || data?.error) {
+    const message = typeof data?.error === "string" ? data.error : data?.error?.message;
+    throw new Error(`${data?.code ? `${data.code} — ` : ""}${label}: ${message || `HTTP ${response.status}`}`);
+  }
+  return data;
+}
+
 // ─── Main App (War Room Experience) ───────────────────────────────────────────
 export default function App() {
   const [positions, setPositions]               = useState([]);
   const [opportunities, setOpportunities]       = useState([]);
   const [btcPrice, setBtcPrice]                 = useState(null);
-  const [marketContext, setMarketContext]       = useState({ price: null, change24h: 0, ma20: null, distFromMA20: 0, ivRank: null });
-  const [ivRank, setIvRank]                     = useState(null);
+  const [marketContext, setMarketContext]       = useState({ price: null, change24h: null, ma20: null, distFromMA20: null, marketIv: null, ivRank: null });
+  const [marketIv, setMarketIv]                 = useState(null);
+  const [optionMarks, setOptionMarks]           = useState([]);
   const [connError, setConnError]               = useState(null);
+  const [dataStatus, setDataStatus]             = useState("loading"); // loading | live | partial | offline
   const [loadingPositions, setLoadingPositions] = useState(true);
   const [lastSync, setLastSync]                 = useState(null);
   const [analyzing, setAnalyzing]               = useState(null);
@@ -70,16 +86,18 @@ export default function App() {
 
   const fetchLiveData = useCallback(async () => {
     try {
-      const [marketRes, posRes, marksRes, acctRes] = await Promise.all([
-        fetch("/api/binance?action=btcMarketContext").catch(() => fetch("/api/binance?action=btcPrice")),
-        fetch("/api/binance?action=optionPositions"),
-        fetch("/api/binance?action=optionMarks"),
-        fetch("/api/binance?action=optionAccount").catch(() => null),
+      const [marketData, posData, marksData, acctData] = await Promise.all([
+        fetch("/api/binance?action=btcMarketContext", { headers: getApiAuthHeaders() })
+          .then(res => readApiJson(res, "Market Context"))
+          .catch(() => fetch("/api/binance?action=btcPrice", { headers: getApiAuthHeaders() }).then(res => readApiJson(res, "BTC Price"))),
+        fetch("/api/binance?action=optionPositions", { headers: getApiAuthHeaders() }).then(res => readApiJson(res, "Options Positions")),
+        fetch("/api/binance?action=optionMarks", { headers: getApiAuthHeaders() }).then(res => readApiJson(res, "Options Market")),
+        fetch("/api/binance?action=optionAccount", { headers: getApiAuthHeaders() })
+          .then(res => readApiJson(res, "Options Account"))
+          .catch(() => null),
       ]);
-      const marketData = await marketRes.json();
-      const posData    = await posRes.json();
-      const marksData  = await marksRes.json();
-      const acctData   = acctRes ? await acctRes.json().catch(() => null) : null;
+
+      if (Array.isArray(marksData)) setOptionMarks(marksData);
 
       // ── Account info ──────────────────────────────────────────────────────
       let parsedAccount = null;
@@ -93,24 +111,25 @@ export default function App() {
       if (currentBtcPrice) setBtcPrice(currentBtcPrice);
 
       // ── Market IV (average of all available option marks) ──────────────────
-      let currentIvRank = null;
+      let currentMarketIv = null;
       if (Array.isArray(marksData) && marksData.length > 0) {
         const ivValues = marksData
           .map(m => parseFloat(m.markIV))
           .filter(v => !isNaN(v) && v > 0);
         if (ivValues.length > 0) {
           const avgIV = ivValues.reduce((s, v) => s + v, 0) / ivValues.length;
-          currentIvRank = Math.round(avgIV * 100);
-          setIvRank(currentIvRank);
+          currentMarketIv = Math.round(avgIV * 100);
+          setMarketIv(currentMarketIv);
         }
       }
 
       const updatedMarketContext = {
         price: currentBtcPrice,
-        change24h: marketData.change24h ?? 0,
+        change24h: marketData.change24h ?? null,
         ma20: marketData.ma20 ?? null,
-        distFromMA20: marketData.distFromMA20 ?? 0,
-        ivRank: currentIvRank,
+        distFromMA20: marketData.distFromMA20 ?? null,
+        marketIv: currentMarketIv,
+        ivRank: null,
       };
       setMarketContext(updatedMarketContext);
 
@@ -168,7 +187,7 @@ export default function App() {
         const opps = scanEntryOpportunities(
           marksData,
           currentBtcPrice,
-          currentIvRank,
+          currentMarketIv,
           mappedPositions,
           updatedMarketContext,
           autoProfile.key
@@ -194,8 +213,11 @@ export default function App() {
       }
 
       setLastSync(new Date());
+      setDataStatus(parsedAccount ? "live" : "partial");
+      setConnError(null);
     } catch (e) {
-      setConnError(e.message);
+      setDataStatus("offline");
+      setConnError(e.message || "ไม่สามารถโหลดข้อมูลล่าสุดได้");
     } finally {
       setLoadingPositions(false);
     }
@@ -231,6 +253,7 @@ export default function App() {
   const totalTheta = positions.reduce((s, p) => s + (Math.abs(p.theta) * (p.size || 1)), 0);
   const warnings   = positions.filter(p => p.status === "warning" || p.status === "danger").length;
   const capacity   = calculatePortfolioCapacity(accountInfo, positions, btcPrice, marketContext, opportunities);
+  const hasPositionData = dataStatus === "live" || dataStatus === "partial";
 
   const tabStyle = (t) => ({
     padding: "10px 20px",
@@ -255,7 +278,7 @@ export default function App() {
       <LiveTickerTape
         btcPrice={btcPrice}
         marketContext={marketContext}
-        ivRank={ivRank}
+        marketIv={marketIv}
         topOpportunity={opportunities[0]}
       />
 
@@ -270,20 +293,20 @@ export default function App() {
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{
             width: 10, height: 10, borderRadius: "50%",
-            background: connError ? T.red : T.green,
-            boxShadow: `0 0 12px ${connError ? T.red : T.green}`,
+            background: dataStatus === "live" ? T.green : dataStatus === "partial" ? T.amber : T.red,
+            boxShadow: `0 0 12px ${dataStatus === "live" ? T.green : dataStatus === "partial" ? T.amber : T.red}`,
             animation: "neonPulse 2s infinite",
           }} />
           <span style={{ color: T.textPrimary, fontWeight: 900, fontSize: 17, letterSpacing: 2, fontFamily: T.fontSans }}>
             ⚡ BTC OPTIONS DESK
           </span>
           <span style={{
-            background: connError ? T.redDim : T.greenDim,
-            color: connError ? T.red : T.green,
-            border: `1px solid ${connError ? T.red + "44" : T.greenMid}`,
+            background: dataStatus === "live" ? T.greenDim : dataStatus === "partial" ? T.amberDim : T.redDim,
+            color: dataStatus === "live" ? T.green : dataStatus === "partial" ? T.amber : T.red,
+            border: `1px solid ${dataStatus === "live" ? T.greenMid : dataStatus === "partial" ? T.amber + "55" : T.red + "44"}`,
             borderRadius: 6, padding: "2px 8px", fontSize: 10, fontWeight: 800, letterSpacing: 1,
           }}>
-            {connError ? "OFFLINE" : "YIELD BOOST v2.5"}
+            {dataStatus === "live" ? "LIVE" : dataStatus === "partial" ? "PARTIAL DATA" : dataStatus === "loading" ? "LOADING" : "OFFLINE"}
           </span>
         </div>
 
@@ -364,7 +387,7 @@ export default function App() {
               }}
             >
               <span>🔔</span>
-              <span>ALERTS {alertPrefs.enabled ? "ACTIVE" : "MUTED"}</span>
+              <span>ALERTS {dataStatus === "offline" ? "NO DATA" : alertPrefs.enabled ? "ARMED" : "MUTED"}</span>
               <span style={{
                 background: alertPrefs.enabled ? T.green : T.border,
                 color: "#05080c", borderRadius: 4, padding: "1px 4px", fontSize: 9, fontWeight: 900
@@ -376,7 +399,7 @@ export default function App() {
 
           <div style={{ textAlign: "right" }}>
             <div style={{ color: T.textSecondary, fontSize: 10, letterSpacing: 1, fontFamily: T.fontSans }}>
-              BTC / USDT {marketContext.change24h != null && (
+              BTC / USDT {marketContext.change24h != null && dataStatus !== "offline" && (
                 <span style={{ color: marketContext.change24h >= 0 ? T.green : T.red, fontWeight: 700 }}>
                   ({marketContext.change24h >= 0 ? "+" : ""}{marketContext.change24h}%)
                 </span>
@@ -392,30 +415,45 @@ export default function App() {
       {/* ── Connection error banner ──────────────────────────────────────────── */}
       {connError && (
         <div style={{ margin: "16px 24px 0", padding: 14, background: T.redDim, border: `1px solid ${T.red}44`, borderRadius: 8, color: T.red, fontSize: 12, fontFamily: T.fontSans }}>
-          ⚠ เชื่อมต่อ Binance ไม่สำเร็จ: {connError}
+          ⚠ ข้อมูลล่าสุดไม่พร้อมใช้งาน: {connError}
           <div style={{ color: T.textSecondary, marginTop: 6, fontSize: 11 }}>
             ตรวจสอบว่าตั้งค่า BINANCE_API_KEY / BINANCE_API_SECRET ใน Vercel Environment Variables แล้ว และ API Key เปิดสิทธิ์ "Enable Reading"
           </div>
+          {(connError.includes("AUTH_REQUIRED") || connError.includes("Access Token")) && (
+            <button
+              onClick={() => {
+                const token = window.prompt("กรอก APP_ACCESS_TOKEN สำหรับ Dashboard นี้");
+                if (token) {
+                  saveApiAccessToken(token);
+                  setDataStatus("loading");
+                  fetchLiveData();
+                }
+              }}
+              style={{ marginTop: 10, background: T.greenDim, color: T.green, border: `1px solid ${T.greenMid}`, borderRadius: 6, padding: "6px 12px", cursor: "pointer", fontWeight: 700 }}
+            >
+              🔐 ปลดล็อก Dashboard
+            </button>
+          )}
         </div>
       )}
 
       {/* ── Metric Cards & Speedometer Section ────────────────────────────────── */}
       <div style={{ display: "flex", gap: 14, padding: "16px 24px", flexWrap: "wrap", alignItems: "stretch" }}>
         <div style={{ flex: "2 1 540px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
-          <MetricCard label="Account Equity" value={accountInfo ? fmtUSD(accountInfo.equity, 2) : "$0.00"} color={T.blue} sub={accountInfo ? `Margin ${accountInfo.marginPct}% / 30% Max` : "Binance Options"} />
-          <MetricCard label="Available Margin" value={accountInfo ? fmtUSD(accountInfo.availableBalance, 2) : "$0.00"} color={T.green} sub={accountInfo ? `Balance ${fmtUSD(accountInfo.balance, 2)}` : "พร้อมเทรด"} />
-          <MetricCard label="Unrealized P&L" value={`${totalPnl > 0 ? "+" : ""}${fmtUSD(totalPnl, 2)}`} color={pnlColor(totalPnl)} sub="รวมทุก position" />
-          <MetricCard label="Theta / Day" value={`+$${totalTheta < 1 ? totalTheta.toFixed(2) : totalTheta.toFixed(1)}`} color={T.green} sub="รายได้ต่อวัน" />
-          <MetricCard label="Open Positions" value={positions.length} color={T.blue} sub={`${positions.filter(p => p.status === "healthy").length} healthy`} />
-          <MetricCard label="Risk Alerts" value={warnings} color={warnings > 0 ? T.red : T.textMuted} sub={warnings > 0 ? "ต้องตัดสินใจ" : "ทุก position ปลอดภัย"} />
+          <MetricCard label="Account Equity" value={accountInfo ? fmtUSD(accountInfo.equity, 2) : "N/A"} color={T.blue} sub={accountInfo ? `Margin ${accountInfo.marginPct}% / 30% Max` : "รอข้อมูล Options Account"} />
+          <MetricCard label="Available Margin" value={accountInfo ? fmtUSD(accountInfo.availableBalance, 2) : "N/A"} color={T.green} sub={accountInfo ? `Balance ${fmtUSD(accountInfo.balance, 2)}` : "ยังประเมิน Capacity ไม่ได้"} />
+          <MetricCard label="Unrealized P&L" value={hasPositionData ? `${totalPnl > 0 ? "+" : ""}${fmtUSD(totalPnl, 2)}` : "N/A"} color={hasPositionData ? pnlColor(totalPnl) : T.textMuted} sub={hasPositionData ? "รวมทุก position" : "รอข้อมูล Positions"} />
+          <MetricCard label="Theta / Day" value={hasPositionData ? `+$${totalTheta < 1 ? totalTheta.toFixed(2) : totalTheta.toFixed(1)}` : "N/A"} color={hasPositionData ? T.green : T.textMuted} sub={hasPositionData ? "ค่าประมาณรายวัน" : "รอข้อมูล Greeks"} />
+          <MetricCard label="Open Positions" value={hasPositionData ? positions.length : "N/A"} color={T.blue} sub={hasPositionData ? `${positions.filter(p => p.status === "healthy").length} healthy` : "รอข้อมูล Positions"} />
+          <MetricCard label="Risk Alerts" value={hasPositionData ? warnings : "N/A"} color={hasPositionData && warnings > 0 ? T.red : T.textMuted} sub={!hasPositionData ? "ยังประเมินไม่ได้" : warnings > 0 ? "ต้องตัดสินใจ" : "ไม่พบ Alert ตามกฎ"} />
         </div>
 
         {/* IV Rank & Market Volatility Speedometer */}
         <div style={{ flex: "1 1 260px", minWidth: 260 }}>
           <SentimentGauge
-            ivRank={ivRank || marketContext.ivRank || 45}
+            marketIv={marketIv}
             distFromMA20={marketContext.distFromMA20}
-            netDelta={positions.reduce((s, p) => s + (p.delta || 0) * (p.size || 1), 0)}
+            netDelta={positions.reduce((s, p) => s + (p.positionDelta ?? ((p.delta || 0) * (p.size || 1))), 0)}
           />
         </div>
       </div>
@@ -469,7 +507,7 @@ export default function App() {
           <ScannerTab
             opportunities={opportunities}
             btcPrice={btcPrice}
-            ivRank={ivRank}
+            marketIv={marketIv}
             marketContext={marketContext}
             accountInfo={accountInfo}
             currentPositions={positions}
@@ -486,6 +524,8 @@ export default function App() {
         <div style={{ padding: "0 0 24px" }}>
           {loadingPositions ? (
             <div style={{ padding: 40, textAlign: "center", color: T.textMuted, fontFamily: T.font, fontSize: 12 }}>กำลังโหลด positions...</div>
+          ) : !hasPositionData ? (
+            <div style={{ padding: 40, textAlign: "center", color: T.textMuted, fontFamily: T.font, fontSize: 12 }}>ยังไม่มีข้อมูล positions ที่ยืนยันได้</div>
           ) : positions.length === 0 ? (
             <div style={{ padding: 40, textAlign: "center", color: T.textMuted, fontFamily: T.font, fontSize: 12 }}>ไม่มี open positions ในขณะนี้</div>
           ) : (
@@ -535,9 +575,9 @@ export default function App() {
               title: "1. RISK & YIELD PROFILES (เลือกระดับผลตอบแทนตามสภาวะตลาด)",
               color: T.green,
               items: [
-                "🛡️ CONSERVATIVE: Delta 0.15–0.18 | DTE 18–25 วัน | TP 50% | คาดการณ์ผลตอบแทน ~25–35% APY",
-                "⚡ BALANCED ALPHA (แนะนำ ★): Delta 0.20–0.24 | DTE 12–20 วัน | TP 45% | คาดการณ์ผลตอบแทน ~50–65% APY",
-                "🔥 HIGH YIELD HUNTER: Delta 0.25–0.28 | DTE 7–14 วัน | TP 40% | คาดการณ์ผลตอบแทน ~80–110% APY",
+                "🛡️ CONSERVATIVE: Delta 0.15–0.18 | DTE 18–25 วัน | TP 50% | เน้นระยะห่าง Strike และลด Gamma Risk",
+                "⚡ BALANCED ALPHA: Delta 0.20–0.24 | DTE 12–20 วัน | TP 45% | ความเสี่ยงและ Premium ระดับกลาง",
+                "🔥 HIGH YIELD HUNTER: Delta 0.25–0.28 | DTE 7–14 วัน | TP 40% | Premium สูงขึ้นพร้อม Gamma/Tail Risk ที่สูงขึ้น",
               ],
             },
             {
@@ -595,6 +635,7 @@ export default function App() {
       {paperModalOpen && (
         <PaperTradingDrawer
           btcPrice={btcPrice}
+          optionMarks={optionMarks}
           onClose={() => setPaperModalOpen(false)}
         />
       )}
@@ -614,7 +655,7 @@ export default function App() {
         <AnalysisPanel
           pos={analyzing}
           btcPrice={btcPrice}
-          ivRank={ivRank}
+          marketIv={marketIv}
           onClose={() => setAnalyzing(null)}
         />
       )}

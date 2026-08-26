@@ -168,7 +168,7 @@ export function AlertSettingsModal({
                 ALERT & NOTIFICATION ENGINE
               </div>
               <div style={{ fontSize: 11, color: T.green, fontFamily: T.font, fontWeight: 700 }}>
-                24/7 AUTOMATION & STATE ESCALATION v2.5
+                LIVE BROWSER ALERTS + SERVER CRON v2.5
               </div>
             </div>
           </div>
@@ -215,7 +215,7 @@ export function AlertSettingsModal({
               {prefs.enabled ? "🟢 SYSTEM ALERTS: ACTIVE (เปิดใช้งาน)" : "🔴 SYSTEM ALERTS: MUTED (ปิดทั้งหมด)"}
             </div>
             <div style={{ color: T.textSecondary, fontSize: 11, marginTop: 2 }}>
-              ตรวจจับความเสี่ยงแบบ Realtime ในแอป และทำงานเบื้องหลัง 24/7 ผ่าน Vercel Cron
+              สวิตช์นี้ควบคุม Alerts ขณะเปิดแอปเท่านั้น ส่วน Cron ใช้ CRON_ALERTS_ENABLED ฝั่ง Server แยกกัน
             </div>
           </div>
 
@@ -242,6 +242,10 @@ export function AlertSettingsModal({
               }}
             />
           </div>
+        </div>
+
+        <div style={{ color: T.textMuted, fontSize: 10, lineHeight: 1.5, marginTop: -12, marginBottom: 18 }}>
+          Cron cooldown แบบข้ามหลาย server instance ต้องตั้งค่า KV_REST_API_URL / KV_REST_API_TOKEN; หากไม่มี ระบบจะลดข้อความซ้ำได้เฉพาะ instance ที่ยังทำงานอยู่
         </div>
 
         {/* Categories */}

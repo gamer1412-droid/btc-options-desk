@@ -4,13 +4,17 @@
 //   GROQ_API_KEY = your Groq API key from https://console.groq.com/keys
 //   (Optional) ANTHROPIC_API_KEY = your Claude key from https://console.anthropic.com
 
+import { requireAppAuth, enforceRateLimit } from "../lib/security.js";
+
 export default async function handler(req, res) {
   const allowedOrigin = process.env.ALLOWED_ORIGIN ?? "*";
   res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST" });
+  if (!requireAppAuth(req, res)) return;
+  if (!enforceRateLimit(req, res, { key: "analyze", limit: 10, windowMs: 60_000 })) return;
 
   const groqApiKey = process.env.GROQ_API_KEY;
   const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
@@ -21,8 +25,11 @@ export default async function handler(req, res) {
     });
   }
 
-  const { prompt } = req.body;
+  const { prompt } = req.body || {};
   if (!prompt) return res.status(400).json({ error: { message: "Missing 'prompt' in request body" } });
+  if (typeof prompt !== "string" || prompt.length > 12_000) {
+    return res.status(400).json({ error: { message: "Prompt exceeds 12,000 characters" } });
+  }
 
   // 1. If Anthropic Claude API Key is provided, use Claude
   if (anthropicApiKey && !groqApiKey) {
@@ -131,4 +138,3 @@ export default async function handler(req, res) {
     error: { message: `ไม่สามารถเรียก Groq API ได้: ${lastError}` },
   });
 }
-

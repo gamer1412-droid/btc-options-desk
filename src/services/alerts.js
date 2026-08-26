@@ -1,5 +1,6 @@
 import { STRATEGY_CONFIG } from "../config/strategyConfig.js";
 import { evaluateEntryRules } from "./rulesEngine.js";
+import { getApiAuthHeaders } from "./apiClient.js";
 
 const ALERT_STORAGE_KEY = "btc_options_desk_alerted_positions_v2";
 const ENTRY_STORAGE_KEY = "btc_options_desk_alerted_entries_v2";
@@ -85,10 +86,12 @@ export async function sendTelegram(type, data = {}) {
   try {
     const res = await fetch("/api/telegram", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...getApiAuthHeaders() },
       body: JSON.stringify({ type, data }),
     });
-    return await res.json();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.error) throw new Error(data?.error || `Telegram HTTP ${res.status}`);
+    return data;
   } catch (e) {
     console.error("Telegram error:", e.message);
     return { error: e.message };
@@ -234,14 +237,15 @@ export function checkEntryAlerts(opportunities, alertedEntryIds, marketContext =
 export function buildDailyBriefingData(positions = [], marketContext = {}, accountInfo = null) {
   const totalPnl = positions.reduce((s, p) => s + (p.pnl || 0), 0);
   const totalTheta = positions.reduce((s, p) => s + (Math.abs(p.theta || 0) * (p.size || 1)), 0);
-  const netDelta = positions.reduce((s, p) => s + ((p.delta || 0) * (p.size || 1)), 0);
+  const netDelta = positions.reduce((s, p) => s + (p.positionDelta ?? ((p.delta || 0) * (p.size || 1))), 0);
   const minDte = positions.length > 0 ? Math.min(...positions.map(p => p.dte || 999)) : 0;
   const criticalCount = positions.filter(p => Math.abs(p.delta) >= 0.50 || (p.dte && p.dte <= 2)).length;
 
   return {
     btcPrice: marketContext.price || 0,
     change24h: marketContext.change24h || 0,
-    ivRank: marketContext.ivRank || 0,
+    marketIv: marketContext.marketIv ?? null,
+    ivRank: marketContext.ivRank ?? null,
     positionCount: positions.length,
     totalPnl: Math.round(totalPnl),
     totalTheta: Math.round(totalTheta),

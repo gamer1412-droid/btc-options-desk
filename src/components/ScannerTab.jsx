@@ -13,7 +13,7 @@ import { determineOptimalMarketProfile } from "../services/scanner.js";
 export function ScannerTab({
   opportunities = [],
   btcPrice,
-  ivRank,
+  marketIv,
   marketContext = {},
   accountInfo,
   currentPositions = [],
@@ -115,7 +115,7 @@ export function ScannerTab({
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
               <span style={{ fontSize: 18 }}>🧠</span>
               <span style={{ color: T.textPrimary, fontFamily: T.fontSans, fontWeight: 900, fontSize: 13, letterSpacing: 1.5 }}>
-                AI MARKET REGIME ENGINE — กลยุทธ์ที่ระบบเลือกให้อัตโนมัติ
+                RULE-BASED MARKET REGIME — กรอบกลยุทธ์อัตโนมัติ
               </span>
               <span style={{
                 background: `${currentOptimal.tagColor}22`,
@@ -128,7 +128,7 @@ export function ScannerTab({
                 fontFamily: T.font,
                 letterSpacing: 1,
               }}>
-                {currentOptimal.tag} (AUTO-OPTIMIZED)
+                {currentOptimal.tag} {currentOptimal.metrics?.dataComplete ? "(AUTO)" : "(WAIT FOR DATA)"}
               </span>
             </div>
 
@@ -146,9 +146,9 @@ export function ScannerTab({
             flexDirection: "column",
             alignItems: "flex-end",
           }}>
-            <div style={{ color: T.textSecondary, fontSize: 10, letterSpacing: 1, fontFamily: T.fontSans }}>ESTIMATED TARGET YIELD</div>
+            <div style={{ color: T.textSecondary, fontSize: 10, letterSpacing: 1, fontFamily: T.fontSans }}>PROFILE TARGET (NOT GUARANTEED)</div>
             <div style={{ color: currentOptimal.tagColor, fontFamily: T.font, fontSize: 18, fontWeight: 900, marginTop: 2 }}>
-              {activeProfile.desc.split(",")[0] || "50–65% APY"}
+              Delta {activeProfile.deltaMin}–{activeProfile.deltaMax} / DTE {activeProfile.dtePreferredMin}–{activeProfile.dtePreferredMax}d
             </div>
           </div>
         </div>
@@ -164,15 +164,15 @@ export function ScannerTab({
         }}>
           <div style={{ background: T.bg0, padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.border}` }}>
             <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>MARKET TREND (VS MA20)</div>
-            <div style={{ color: (marketContext.distFromMA20 ?? 0) >= 0 ? T.green : T.red, fontFamily: T.font, fontSize: 13, fontWeight: 700, marginTop: 2 }}>
-              {(marketContext.distFromMA20 ?? 0) >= 0 ? "+" : ""}{(marketContext.distFromMA20 ?? 0).toFixed(1)}% {isBullishRegime ? "🔥 Bullish" : isBearishRegime ? "⚠️ Bearish" : "⚖️ Sideway"}
+            <div style={{ color: marketContext.distFromMA20 == null ? T.textMuted : marketContext.distFromMA20 >= 0 ? T.green : T.red, fontFamily: T.font, fontSize: 13, fontWeight: 700, marginTop: 2 }}>
+              {marketContext.distFromMA20 == null ? "N/A — รอข้อมูล MA20" : `${marketContext.distFromMA20 >= 0 ? "+" : ""}${marketContext.distFromMA20.toFixed(1)}% ${isBullishRegime ? "🔥 Bullish" : isBearishRegime ? "⚠️ Bearish" : "⚖️ Sideway"}`}
             </div>
           </div>
 
           <div style={{ background: T.bg0, padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.border}` }}>
-            <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>MARKET IV RANK</div>
-            <div style={{ color: (ivRank || marketContext.ivRank) >= 40 ? T.purple : T.blue, fontFamily: T.font, fontSize: 13, fontWeight: 700, marginTop: 2 }}>
-              {ivRank || marketContext.ivRank || 45}% {(ivRank || marketContext.ivRank) >= 40 ? "💎 Premium สูง" : "Normal Volatility"}
+            <div style={{ color: T.textMuted, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>OPTION CHAIN AVG IV</div>
+            <div style={{ color: marketIv >= 40 ? T.purple : T.blue, fontFamily: T.font, fontSize: 13, fontWeight: 700, marginTop: 2 }}>
+              {marketIv != null ? `${marketIv}% (Current IV, not IV Rank)` : "N/A — รอข้อมูลตลาด"}
             </div>
           </div>
 
@@ -190,6 +190,10 @@ export function ScannerTab({
             </div>
           </div>
         </div>
+      </div>
+
+      <div style={{ color: T.textMuted, fontSize: 11, lineHeight: 1.5, fontFamily: T.fontSans }}>
+        * Annualized ROM เป็นค่าประมาณจาก Mark Price และ Margin สมมติ 15–18% ยังไม่รวม bid/ask spread, slippage, fees, การเปลี่ยนแปลง Margin และ Tail Loss — ตรวจราคาที่ execute ได้จริงบน Binance ทุกครั้ง
       </div>
 
       {/* ── Strategy Filter Tabs ────────────────────────────────────────────── */}
@@ -282,7 +286,7 @@ export function ScannerTab({
                   transition: "all 0.2s ease",
                 }}
               >
-                {/* APY Yield Banner Top Right */}
+                {/* Estimated annualized return-on-assumed-margin banner */}
                 <div style={{
                   position: "absolute",
                   top: -11,
@@ -299,7 +303,7 @@ export function ScannerTab({
                   boxShadow: `0 0 15px ${apy >= 65 ? "rgba(251, 191, 36, 0.5)" : "rgba(0, 240, 168, 0.4)"}`,
                   letterSpacing: 0.5,
                 }}>
-                  {apy >= 65 ? "🔥" : "💎"} EST. YIELD ~{apy}% APY
+                  {apy >= 65 ? "⚠️" : "◈"} EST. ANN. ROM ~{apy}%*
                 </div>
 
                 {/* 🌟 Top Pick Outstanding Ribbon */}
@@ -320,7 +324,7 @@ export function ScannerTab({
                   }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <span style={{ fontSize: 15 }}>⭐</span>
-                      <span>สัญญาที่แนะนำให้เปิด ณ ตอนนี้ (TOP PICK — AI RECOMMENDED TO OPEN)</span>
+                      <span>อันดับสูงสุดตามกฎเบื้องต้น — ต้องตรวจราคาและ Margin จริงก่อน</span>
                     </div>
                     <span style={{
                       background: "#05080c",
@@ -579,7 +583,7 @@ export function ScannerTab({
                       EST. ANNUAL YIELD
                     </div>
                     <div style={{ color: apy >= 65 ? T.amber : T.green, fontFamily: T.font, fontSize: 15, fontWeight: 800 }}>
-                      ~{apy}% APY
+                      ~{apy}% annualized ROM*
                     </div>
                   </div>
                 </div>
@@ -610,6 +614,7 @@ export function ScannerTab({
                         return (
                           <button
                             key={lot.size}
+                            disabled={!lot.canAfford}
                             onClick={() => {
                               SoundFX.playClick();
                               setSelectedSize(prev => ({ ...prev, [opp.id]: lot.size }));
@@ -764,4 +769,3 @@ export function ScannerTab({
     </div>
   );
 }
-

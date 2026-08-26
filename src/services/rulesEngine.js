@@ -181,6 +181,7 @@ export function evaluateEntryRules(opp, marketContext = {}, accountInfo = null, 
 
   // ── 4. Implied Volatility (IV) Filter ──────────────────────────────────
   const ivRank = marketContext.ivRank ?? opp.ivRank ?? null;
+  const marketIv = marketContext.marketIv ?? opp.marketIv ?? null;
   if (ivRank != null) {
     if (ivRank < cfg.iv.ivrMin) {
       isBlocked = true;
@@ -199,6 +200,25 @@ export function evaluateEntryRules(opp, marketContext = {}, accountInfo = null, 
         icon: "✅",
       });
     }
+  } else if (marketIv != null) {
+    hasWarning = true;
+    sizeMultiplier *= 0.75;
+    checks.push({
+      rule: "Volatility Data Quality",
+      status: "WARNING",
+      message: `มีเฉพาะ Chain Average IV = ${Number(marketIv).toFixed(1)}% — ยังไม่มี IV Rank จากข้อมูลย้อนหลัง`,
+      icon: "⚠️",
+    });
+    reasons.push("⚠️ ยังไม่มี IV Rank/Percentile จริง ระบบลดขนาดแนะนำ 25% และไม่ใช้ Current IV แทน Historical IV Rank");
+  } else {
+    isBlocked = true;
+    checks.push({
+      rule: "Volatility Data Quality",
+      status: "BLOCKED",
+      message: "ไม่มีข้อมูล IV ที่เชื่อถือได้",
+      icon: "❌",
+    });
+    reasons.push("❌ ไม่มีข้อมูล IV — งดเปิด Position จาก Scanner");
   }
 
   // ── 5. Market Regime (Distance from MA20) ──────────────────────────────
@@ -383,26 +403,28 @@ export function evaluateEntryRules(opp, marketContext = {}, accountInfo = null, 
 
   // ── 8. Net Portfolio Delta Limit ────────────────────────────────────────
   if (Array.isArray(currentPositions) && currentPositions.length > 0) {
-    const netDelta = currentPositions.reduce((s, p) => s + (p.delta * (p.size || 1)), 0);
-    const absNetDelta = Math.abs(netDelta);
+    const netDelta = currentPositions.reduce((s, p) => s + (p.positionDelta ?? (p.delta * (p.size || 1))), 0);
+    const navBtc = accountInfo?.equity > 0 && marketContext?.price > 0 ? accountInfo.equity / marketContext.price : null;
+    const normalizedNetDelta = navBtc > 0 ? netDelta / navBtc : netDelta;
+    const absNetDelta = Math.abs(normalizedNetDelta);
     if (absNetDelta > cfg.portfolioDelta.hardLimit) {
       isBlocked = true;
       checks.push({
         rule: "Portfolio Delta Limit",
         status: "BLOCKED",
-        message: `Net Portfolio Delta = ${netDelta.toFixed(2)} BTC (> ${cfg.portfolioDelta.hardLimit})`,
+        message: `Net Delta / 1 BTC NAV = ${normalizedNetDelta.toFixed(2)} (> ${cfg.portfolioDelta.hardLimit})`,
         icon: "❌",
       });
-      reasons.push(`❌ Net Portfolio Delta = ${netDelta.toFixed(2)} BTC (เกิน Hard Limit ${cfg.portfolioDelta.hardLimit})`);
+      reasons.push(`❌ Net Delta / 1 BTC NAV = ${normalizedNetDelta.toFixed(2)} (เกิน Hard Limit ${cfg.portfolioDelta.hardLimit})`);
     } else if (absNetDelta > cfg.portfolioDelta.warningThreshold) {
       hasWarning = true;
       checks.push({
         rule: "Portfolio Delta Limit",
         status: "WARNING",
-        message: `Net Portfolio Delta = ${netDelta.toFixed(2)} BTC (> ${cfg.portfolioDelta.warningThreshold})`,
+        message: `Net Delta / 1 BTC NAV = ${normalizedNetDelta.toFixed(2)} (> ${cfg.portfolioDelta.warningThreshold})`,
         icon: "⚠️",
       });
-      reasons.push(`⚠️ Net Portfolio Delta = ${netDelta.toFixed(2)} BTC (เอียงทิศทางเกิน 0.15)`);
+      reasons.push(`⚠️ Net Delta / 1 BTC NAV = ${normalizedNetDelta.toFixed(2)} (พอร์ตเอียงทิศทาง)`);
     }
   }
 

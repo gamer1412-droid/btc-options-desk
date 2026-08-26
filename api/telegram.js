@@ -10,13 +10,17 @@
 //    TELEGRAM_CHAT_ID   = 123456789
 //    APP_URL            = https://your-desk-url.vercel.app (Optional)
 
+import { requireAppAuth, enforceRateLimit } from "../lib/security.js";
+
 export default async function handler(req, res) {
   const allowedOrigin = process.env.ALLOWED_ORIGIN ?? "*";
   res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST" });
+  if (!requireAppAuth(req, res)) return;
+  if (!enforceRateLimit(req, res, { key: "telegram", limit: 12, windowMs: 60_000 })) return;
 
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = String(process.env.TELEGRAM_CHAT_ID || "");
@@ -56,7 +60,7 @@ export default async function handler(req, res) {
     message = `📊 *DAILY PORTFOLIO BRIEFING — BTC Options Desk*
 ━━━━━━━━━━━━━━━━━━━━━
 ₿ *BTC Spot:* $${Number(d.btcPrice || 0).toLocaleString()} (${d.change24h >= 0 ? "+" : ""}${d.change24h}%)
-📈 *Market IV:* ${d.ivRank || 0}% | *Port Delta:* \`${d.netDelta || 0}\` (${deltaPosture})
+📈 *Chain Avg IV:* ${d.marketIv ?? "N/A"}% | *Port Delta:* \`${d.netDelta || 0}\` (${deltaPosture})
 
 💼 *Portfolio Health:*
   • สัญญาเปิดอยู่: *${d.positionCount || 0} Positions*
@@ -102,7 +106,7 @@ ${d.tacticalAction || (isTP ? "ปิดทำกำไร 50% ตามแผ�
     message = `🟢 *ENTRY SIGNAL — BTC Bullish Short Put* ⭐
 ━━━━━━━━━━━━━━━━━━━━━
 📅 *Expiry:* ${d.expiry} (${d.dte} วัน)
-₿ *BTC Spot:* $${Number(d.btcPrice).toLocaleString()} | Market IV: ${d.ivRank || d.avgIV}%
+₿ *BTC Spot:* $${Number(d.btcPrice).toLocaleString()} | Chain Avg IV: ${d.marketIv ?? d.avgIV ?? "N/A"}%
 
 📍 *Short Put Contract:*
   • Strike: *$${Number(d.putStrike || d.strike).toLocaleString()}*
@@ -115,7 +119,7 @@ ${d.tacticalAction || (isTP ? "ปิดทำกำไร 50% ตามแผ�
   • Theta Decay: *+$${d.totalTheta}/วัน*
   • Breakeven Price: *$${Number(d.breakevenLow).toLocaleString()}*
 
-💡 *เหตุผล:* ตลาด Bullish + IV สูง (${d.ivRank}%) ขาย Put เก็บ Premium สูงโดยไม่มี Upside Risk
+💡 *เหตุผล:* ตลาด Bullish + Chain IV ${d.marketIv ?? "N/A"}% ขาย Put โดยไม่มี Upside Call Risk (ยังมี Downside/Tail Risk)
 ━━━━━━━━━━━━━━━━━━━━━
 ⚡ _เปิดแอป Binance เพื่อพิจารณาเข้าตามวินัยครับ_`;
   }
@@ -125,7 +129,7 @@ ${d.tacticalAction || (isTP ? "ปิดทำกำไร 50% ตามแผ�
     message = `⚡ *ENTRY SIGNAL — BTC Skewed Strangle (Bullish)*
 ━━━━━━━━━━━━━━━━━━━━━
 📅 *Expiry:* ${d.expiry} (${d.dte} วัน)
-₿ *BTC Spot:* $${Number(d.btcPrice).toLocaleString()} | Market IV: ${d.ivRank || d.avgIV}%
+₿ *BTC Spot:* $${Number(d.btcPrice).toLocaleString()} | Chain Avg IV: ${d.marketIv ?? d.avgIV ?? "N/A"}%
 
 📍 *Short Put:*
   • Strike: *$${Number(d.putStrike).toLocaleString()}* | Delta: \`${d.putDelta}\`
@@ -148,7 +152,7 @@ ${d.tacticalAction || (isTP ? "ปิดทำกำไร 50% ตามแผ�
     message = `🟢 *ENTRY SIGNAL — BTC Short Strangle*
 ━━━━━━━━━━━━━━━━━━━━━
 📅 *Expiry:* ${d.expiry} (${d.dte} วัน)
-₿ *BTC Spot:* $${Number(d.btcPrice).toLocaleString()} | Market IV: ${d.ivRank || d.avgIV}%
+₿ *BTC Spot:* $${Number(d.btcPrice).toLocaleString()} | Chain Avg IV: ${d.marketIv ?? d.avgIV ?? "N/A"}%
 
 📍 *Short Put:* Strike *$${Number(d.putStrike).toLocaleString()}* (Delta \`${d.putDelta}\`)
 📍 *Short Call:* Strike *$${Number(d.callStrike).toLocaleString()}* (Delta \`+${d.callDelta}\`)

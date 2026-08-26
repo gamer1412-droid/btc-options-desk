@@ -20,6 +20,17 @@ export function savePaperTrades(trades) {
 
 export function openPaperTrade(opp, size = 1) {
   const trades = loadPaperTrades();
+  const normalizedSize = Number(size) > 0 ? Number(size) : 0.01;
+  const putLeg = opp.putLeg || opp.put || null;
+  const callLeg = opp.callLeg || opp.call || null;
+  const premiumPerBtc = Number(
+    opp.premiumPerBtc ??
+    opp.totalPremium ??
+    opp.totalPremiumUSD ??
+    opp.premiumUSD ??
+    opp.markPrice ??
+    0
+  );
   const newTrade = {
     id: "PT-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6),
     openedAt: new Date().toISOString(),
@@ -27,27 +38,28 @@ export function openPaperTrade(opp, size = 1) {
     strategy: opp.strategy || "SHORT_PUT",
     strategyTitle: opp.strategyTitle || opp.strategy,
     dte: opp.dte,
-    expiryDate: opp.expiryDate,
-    size: Number(size) || 1,
+    expiryDate: opp.expiryDate || opp.expiry || null,
+    size: normalizedSize,
     entryBtcPrice: opp.btcPrice,
-    initialPremiumTotal: (opp.totalPremiumUSD || opp.premiumUSD || 0) * (Number(size) || 1),
+    premiumPerBtc,
+    initialPremiumTotal: premiumPerBtc * normalizedSize,
     currentPnl: 0,
     legs: [
-      opp.putLeg && {
+      putLeg && {
         type: "PUT",
-        symbol: opp.putLeg.symbol,
-        strike: opp.putLeg.strike,
-        delta: opp.putLeg.delta,
-        entryPrice: opp.putLeg.markPrice,
-        markPrice: opp.putLeg.markPrice,
+        symbol: putLeg.symbol,
+        strike: Number(putLeg.strike),
+        delta: Number(putLeg.delta || 0),
+        entryPrice: Number(putLeg.markPrice || opp.putMark || 0),
+        markPrice: Number(putLeg.markPrice || opp.putMark || 0),
       },
-      opp.callLeg && {
+      callLeg && {
         type: "CALL",
-        symbol: opp.callLeg.symbol,
-        strike: opp.callLeg.strike,
-        delta: opp.callLeg.delta,
-        entryPrice: opp.callLeg.markPrice,
-        markPrice: opp.callLeg.markPrice,
+        symbol: callLeg.symbol,
+        strike: Number(callLeg.strike),
+        delta: Number(callLeg.delta || 0),
+        entryPrice: Number(callLeg.markPrice || opp.callMark || 0),
+        markPrice: Number(callLeg.markPrice || opp.callMark || 0),
       },
     ].filter(Boolean),
   };
@@ -55,6 +67,44 @@ export function openPaperTrade(opp, size = 1) {
   trades.unshift(newTrade);
   savePaperTrades(trades);
   return newTrade;
+}
+
+/**
+ * Mark an open short-premium paper trade to current option prices.
+ * P&L per leg = (entry mark - current mark) * BTC quantity.
+ */
+export function markPaperTrade(trade, marksBySymbol = new Map()) {
+  if (!trade || trade.status !== "OPEN" || !Array.isArray(trade.legs)) return trade;
+
+  let hasLiveMark = false;
+  const legs = trade.legs.map(leg => {
+    const rawMark = marksBySymbol instanceof Map
+      ? marksBySymbol.get(leg.symbol)
+      : marksBySymbol?.[leg.symbol];
+    const nextMark = Number(rawMark?.markPrice ?? rawMark);
+    if (!Number.isFinite(nextMark) || nextMark < 0) return leg;
+    hasLiveMark = true;
+    return { ...leg, markPrice: nextMark };
+  });
+
+  if (!hasLiveMark || legs.length === 0) {
+    return { ...trade, pricingStatus: "STALE" };
+  }
+
+  const size = Number(trade.size) || 0;
+  const currentPnl = legs.reduce((sum, leg) => {
+    const entry = Number(leg.entryPrice) || 0;
+    const mark = Number(leg.markPrice) || 0;
+    return sum + ((entry - mark) * size);
+  }, 0);
+
+  return {
+    ...trade,
+    legs,
+    currentPnl: Math.round(currentPnl * 100) / 100,
+    lastMarkedAt: new Date().toISOString(),
+    pricingStatus: "LIVE_MARK",
+  };
 }
 
 export function closePaperTrade(tradeId, reason = "MANUAL_EXIT") {

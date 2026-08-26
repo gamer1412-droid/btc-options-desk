@@ -2,10 +2,11 @@ import { STRATEGY_CONFIG, RISK_PROFILES } from "../config/strategyConfig.js";
 
 // ─── Dynamic Market Regime & Optimal Profile Selector ─────────────────────────
 export function determineOptimalMarketProfile(marketContext = {}, accountInfo = null, currentPositions = []) {
-  const { distFromMA20 = 0, change24h = 0, ivRank = 45 } = marketContext;
-  const absDist = Math.abs(distFromMA20 ?? 0);
-  const absChange = Math.abs(change24h ?? 0);
-  const currentIVR = ivRank ?? 45;
+  const { distFromMA20 = null, change24h = null, marketIv = null } = marketContext;
+  const hasMarketData = [distFromMA20, change24h, marketIv].every(v => v != null && Number.isFinite(Number(v)));
+  const absDist = hasMarketData ? Math.abs(Number(distFromMA20)) : 0;
+  const absChange = hasMarketData ? Math.abs(Number(change24h)) : 0;
+  const currentMarketIv = hasMarketData ? Number(marketIv) : null;
   const marginPct = accountInfo?.marginPct ?? 0;
 
   let chosenKey = "BALANCED_ALPHA";
@@ -13,8 +14,14 @@ export function determineOptimalMarketProfile(marketContext = {}, accountInfo = 
   let tag = "⚡ BALANCED ALPHA";
   let tagColor = "#00f0a8";
 
+  if (!hasMarketData) {
+    chosenKey = "CONSERVATIVE";
+    tag = "⚪ DATA INCOMPLETE";
+    tagColor = "#94a3b8";
+    rationale = "ข้อมูลราคา, MA20 หรือ Option IV ยังไม่ครบ ระบบจึงไม่เลือกโหมด High Yield และไม่ควรใช้ผลลัพธ์เพื่อเปิด Position";
+  }
   // 1. CONSERVATIVE TRIGGER: High Volatility, Extreme Distance, Bearish Dump, Extreme IV, or High Margin
-  if (absChange >= 4.0 || absDist >= 8.5 || (distFromMA20 != null && distFromMA20 < -6.0) || currentIVR >= 70 || marginPct >= 22) {
+  else if (absChange >= 4.0 || absDist >= 8.5 || distFromMA20 < -6.0 || currentMarketIv >= 70 || marginPct >= 22) {
     chosenKey = "CONSERVATIVE";
     tag = "🛡️ CONSERVATIVE (DEFENSIVE)";
     tagColor = "#38bdf8";
@@ -25,15 +32,15 @@ export function determineOptimalMarketProfile(marketContext = {}, accountInfo = 
     } else if (absChange >= 4.0 || absDist >= 8.5) {
       rationale = `ความผันผวนของราคา 24h สูง (±${absChange.toFixed(1)}%) — ระบบเลือกแผน Conservative เพื่อ Safe Buffer สูงสุด`;
     } else {
-      rationale = `IV Rank พุ่งสูงมาก (${currentIVR}%) สภาวะตลาดตึงเครียด — เลือกระยะปลอดภัยไกลพิเศษเพื่อป้องกัน Tail Risk`;
+      rationale = `ค่าเฉลี่ย IV ของ Option Chain สูงมาก (${currentMarketIv}%) — เลือกระยะปลอดภัยไกลพิเศษเพื่อป้องกัน Tail Risk`;
     }
   }
   // 2. HIGH_YIELD TRIGGER: Stable Sideway / Low Volatility with Healthy IV & Low Margin
-  else if (absDist <= 4.0 && absChange <= 2.2 && currentIVR >= 32 && marginPct < 16) {
+  else if (absDist <= 4.0 && absChange <= 2.2 && currentMarketIv >= 32 && marginPct < 16) {
     chosenKey = "HIGH_YIELD";
     tag = "🔥 HIGH YIELD (ACCELERATED)";
     tagColor = "#f59e0b";
-    rationale = `ตลาดอยู่ในกรอบ Sideway มั่นคง (±${absDist.toFixed(1)}% จาก MA20) + IV สมบูรณ์ (${currentIVR}%) — ระบบเลือกแผน High Yield เพื่อเร่ง Cash Flow และเร่งรอบหมุนเงินทุนสูงสุด (80–110% APY)`;
+    rationale = `ตลาดอยู่ในกรอบ Sideway (±${absDist.toFixed(1)}% จาก MA20) และ Chain IV ${currentMarketIv}% — ระบบเลือกกรอบ Delta/DTE แบบ High Yield แต่ยังต้องตรวจ bid/ask และ Margin จริงก่อนเทรด`;
   }
   // 3. BALANCED ALPHA: Trending / Standard Healthy Alpha Regime (Sweet Spot)
   else {
@@ -41,9 +48,9 @@ export function determineOptimalMarketProfile(marketContext = {}, accountInfo = 
     tag = "⚡ BALANCED ALPHA";
     tagColor = "#00f0a8";
     if (distFromMA20 != null && distFromMA20 > 4.0) {
-      rationale = `BTC มี Momentum ขาขึ้นแข็งแกร่ง (+${distFromMA20.toFixed(1)}% จาก MA20) — ระบบเลือกแผน Balanced Alpha เพื่อเก็บ Premium หนาพร้อมคุมความเสี่ยงปลอดภัย (50–65% APY)`;
+      rationale = `BTC มี Momentum ขาขึ้นแข็งแกร่ง (+${distFromMA20.toFixed(1)}% จาก MA20) — ระบบเลือกกรอบ Balanced Alpha และยังต้องตรวจ Upside Call Risk ก่อนเข้า`;
     } else {
-      rationale = `สภาวะตลาดสมดุลและมีความผันผวนปกติ (IVR ${currentIVR}%) — ระบบเลือกแผน Balanced Alpha ซึ่งเป็น Golden Sweet Spot ที่ดีที่สุด`;
+      rationale = `สภาวะตลาดสมดุลและ Chain IV ปัจจุบัน ${currentMarketIv}% — ระบบเลือกกรอบ Balanced Alpha เป็นค่าเริ่มต้น`;
     }
   }
 
@@ -58,7 +65,8 @@ export function determineOptimalMarketProfile(marketContext = {}, accountInfo = 
     metrics: {
       distFromMA20,
       change24h,
-      ivRank: currentIVR,
+      marketIv: currentMarketIv,
+      dataComplete: hasMarketData,
       marginPct,
     },
   };
@@ -68,7 +76,7 @@ export function determineOptimalMarketProfile(marketContext = {}, accountInfo = 
 export function scanEntryOpportunities(
   marksData,
   btcPrice,
-  ivRank = null,
+  marketIv = null,
   currentPositions = [],
   marketContext = {},
   selectedProfileKey = null
@@ -214,7 +222,11 @@ export function scanEntryOpportunities(
         putDistancePct,
         returnOnMarginPct,
         annualizedYield,
-        ivRank: ivRank || bestPut.iv,
+        marketIv: marketIv ?? bestPut.iv,
+        ivRank: null,
+        premiumPerBtc: putPremium,
+        expiryDate: expiry,
+        putLeg: bestPut,
         isPreferredDTE,
         isIdealDTE,
         isPutHeld,
@@ -286,7 +298,12 @@ export function scanEntryOpportunities(
         callDistancePct,
         returnOnMarginPct,
         annualizedYield,
-        ivRank: ivRank || Math.round((bestSkewPut.iv + bestSkewCall.iv) / 2),
+        marketIv: marketIv ?? Math.round((bestSkewPut.iv + bestSkewCall.iv) / 2),
+        ivRank: null,
+        premiumPerBtc: totalPremium,
+        expiryDate: expiry,
+        putLeg: bestSkewPut,
+        callLeg: bestSkewCall,
         isPreferredDTE,
         isIdealDTE,
         isPutHeld,
@@ -358,7 +375,12 @@ export function scanEntryOpportunities(
         callDistancePct,
         returnOnMarginPct,
         annualizedYield,
-        ivRank: ivRank || Math.round((bestPut.iv + bestCall.iv) / 2),
+        marketIv: marketIv ?? Math.round((bestPut.iv + bestCall.iv) / 2),
+        ivRank: null,
+        premiumPerBtc: totalPremium,
+        expiryDate: expiry,
+        putLeg: bestPut,
+        callLeg: bestCall,
         isPreferredDTE,
         isIdealDTE,
         isPutHeld,

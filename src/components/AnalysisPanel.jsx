@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { T } from "../tokens.js";
 import { fmtUSD, renderAnalysisHtml } from "../utils.js";
 import { Pill } from "./Pill.jsx";
+import { getApiAuthHeaders } from "../services/apiClient.js";
 
-export function AnalysisPanel({ pos, btcPrice, ivRank, onClose }) {
+export function AnalysisPanel({ pos, btcPrice, marketIv, onClose }) {
   const [analysisHtml, setAnalysisHtml] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -11,17 +12,16 @@ export function AnalysisPanel({ pos, btcPrice, ivRank, onClose }) {
   const isCall = Boolean(pos?.type?.includes("Call"));
 
   // Keep references to prevent 15-second background price polling from re-triggering analysis while user is reading
-  const propsRef = useRef({ pos, btcPrice, ivRank });
-  propsRef.current = { pos, btcPrice, ivRank };
+  const propsRef = useRef({ pos, btcPrice, marketIv });
+  propsRef.current = { pos, btcPrice, marketIv };
 
   const runAnalysis = useCallback(async () => {
     setLoading(true);
     setAnalysisHtml("");
 
-    const { pos: currentPos, btcPrice: currentBtcPrice, ivRank: currentIvRank } = propsRef.current;
+    const { pos: currentPos, btcPrice: currentBtcPrice, marketIv: currentMarketIv } = propsRef.current;
 
-    // ivRank comes from parent (calculated from optionMarks) — may be null
-    const ivRankStr = currentIvRank != null ? `${currentIvRank}%` : "ไม่มีข้อมูล (ดู IV ของ position แทน)";
+    const marketIvStr = currentMarketIv != null ? `${currentMarketIv}% (ค่าเฉลี่ย IV ปัจจุบัน ไม่ใช่ IV Rank)` : "ไม่มีข้อมูล";
 
     let prompt = "";
     if (isStrangleSetup) {
@@ -30,7 +30,7 @@ Analyze this proposed SHORT STRANGLE ENTRY OPPORTUNITY on Binance Options.
 
 MARKET DATA:
 - BTC Price: $${currentBtcPrice?.toLocaleString() ?? "unknown"}
-- Market IV: ${ivRankStr}
+- Option Chain Average IV: ${marketIvStr}
 
 PROPOSED STRANGLE SETUP:
 - Expiry: ${currentPos.expiry} (${currentPos.dte} days to expiry)
@@ -59,7 +59,7 @@ Analyze this position and give a concise, actionable recommendation.
 
 MARKET DATA:
 - BTC Price: $${currentBtcPrice?.toLocaleString() ?? "unknown"}
-- IV Rank: ${ivRankStr}
+- Option Chain Average IV: ${marketIvStr}
 
 POSITION:
 - Type: ${currentPos.type}
@@ -93,7 +93,7 @@ Respond in Thai language. Format your response as:
     try {
       const response = await fetch("/api/analyze", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getApiAuthHeaders() },
         body: JSON.stringify({ prompt }),
       });
       const data = await response.json();

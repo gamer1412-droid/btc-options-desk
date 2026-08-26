@@ -4,7 +4,7 @@
 export const RISK_PROFILES = {
   CONSERVATIVE: {
     key: "CONSERVATIVE",
-    label: "🛡️ CONSERVATIVE (Safe 25-35% APY)",
+    label: "🛡️ CONSERVATIVE (Wide Buffer)",
     desc: "Delta ไกลมาก 0.15–0.18, DTE 18–25 วัน เน้นความปลอดภัยสูงสุด",
     deltaMin: 0.14,
     deltaMax: 0.19,
@@ -17,7 +17,7 @@ export const RISK_PROFILES = {
   },
   BALANCED_ALPHA: {
     key: "BALANCED_ALPHA",
-    label: "⚡ BALANCED ALPHA (50-65% APY)",
+    label: "⚡ BALANCED ALPHA (Moderate Risk)",
     desc: "Delta 0.20–0.24, DTE 12–20 วัน เก็บ Premium หนา Theta ไว (แนะนำ)",
     deltaMin: 0.18,
     deltaMax: 0.25,
@@ -30,7 +30,7 @@ export const RISK_PROFILES = {
   },
   HIGH_YIELD: {
     key: "HIGH_YIELD",
-    label: "🔥 HIGH YIELD (80-110% APY)",
+    label: "🔥 HIGH YIELD (Higher Gamma Risk)",
     desc: "Delta 0.25–0.28, DTE 7–14 วัน เก็บกระแสเงินสดก้อนโต หมุนเงินเร็วสุดขีด",
     deltaMin: 0.23,
     deltaMax: 0.30,

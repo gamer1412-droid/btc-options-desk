@@ -15,6 +15,7 @@ export function CapacityWidget({ capacity }) {
     availableBalance,
     equity,
     marginPerLot,
+    stress,
   } = capacity;
 
   const colorMap = {
@@ -71,6 +72,7 @@ export function CapacityWidget({ capacity }) {
       {/* Quick Stats Pill Group */}
       <div style={{
         display: "flex",
+        flexWrap: "wrap",
         gap: 12,
         alignItems: "center",
         background: T.bg1,
@@ -84,6 +86,17 @@ export function CapacityWidget({ capacity }) {
           </div>
           <div style={{ color: T.green, fontFamily: T.font, fontSize: 14, fontWeight: 700 }}>
             {fmtUSD(availableBalance)}
+          </div>
+        </div>
+
+        <div style={{ width: 1, height: 24, background: T.border }} />
+
+        <div>
+          <div style={{ color: T.textSecondary, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>
+            SPOT STRESS ±20%
+          </div>
+          <div style={{ color: stress?.available && stress.worstLossPct > 10 ? T.red : T.textPrimary, fontFamily: T.font, fontSize: 14, fontWeight: 700 }}>
+            {stress?.available ? `-${stress.worstLossPct}%` : "N/A"}
           </div>
         </div>
 

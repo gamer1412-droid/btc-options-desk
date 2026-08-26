@@ -5,20 +5,22 @@ import { fmtUSD } from "../utils.js";
 export const LiveTickerTape = memo(function LiveTickerTape({
   btcPrice,
   marketContext = {},
-  ivRank,
+  marketIv,
   topOpportunity,
 }) {
-  const change24h = marketContext.change24h ?? 0;
+  const hasMarketChange = marketContext.change24h != null && Number.isFinite(Number(marketContext.change24h));
+  const change24h = hasMarketChange ? Number(marketContext.change24h) : null;
   const isUp = change24h >= 0;
-  const distMA = marketContext.distFromMA20 ?? 0;
+  const hasDistMA = marketContext.distFromMA20 != null && Number.isFinite(Number(marketContext.distFromMA20));
+  const distMA = hasDistMA ? Number(marketContext.distFromMA20) : null;
 
-  const regimeText = distMA > 7.0
+  const regimeText = !hasDistMA ? "DATA UNAVAILABLE" : distMA > 7.0
     ? "BULLISH EXPANSION 🚀"
     : distMA < -7.0
     ? "BEARISH PRESSURE 🔻"
     : "BALANCED RANGE ⚖️";
 
-  const regimeColor = distMA > 7.0
+  const regimeColor = !hasDistMA ? T.textMuted : distMA > 7.0
     ? T.green
     : distMA < -7.0
     ? T.red
@@ -28,21 +30,21 @@ export const LiveTickerTape = memo(function LiveTickerTape({
     {
       label: "BTC/USDT",
       value: btcPrice ? fmtUSD(btcPrice, 0) : "---",
-      change: `${isUp ? "+" : ""}${change24h.toFixed(2)}%`,
-      color: isUp ? T.green : T.red,
-      badge: isUp ? "▲ BULL" : "▼ BEAR",
+      change: hasMarketChange ? `${isUp ? "+" : ""}${change24h.toFixed(2)}%` : "N/A",
+      color: !hasMarketChange ? T.textMuted : isUp ? T.green : T.red,
+      badge: !hasMarketChange ? "FEED" : isUp ? "▲ BULL" : "▼ BEAR",
     },
     {
-      label: "IV RANK",
-      value: ivRank != null ? `${ivRank}%` : "32%",
-      change: ivRank >= 30 ? "OPTIMAL SELL" : "LOW VOL",
-      color: ivRank >= 50 ? T.purple : ivRank >= 30 ? T.green : T.textMuted,
+      label: "CHAIN AVG IV",
+      value: marketIv != null ? `${marketIv}%` : "N/A",
+      change: marketIv != null ? "CURRENT IV — NOT IV RANK" : "NO DATA",
+      color: marketIv >= 50 ? T.purple : marketIv != null ? T.blue : T.textMuted,
       badge: "VOL",
     },
     {
       label: "REGIME (MA20)",
       value: regimeText,
-      change: `${distMA > 0 ? "+" : ""}${distMA.toFixed(1)}% vs MA20`,
+      change: hasDistMA ? `${distMA > 0 ? "+" : ""}${distMA.toFixed(1)}% vs MA20` : "N/A",
       color: regimeColor,
       badge: "TREND",
     },
@@ -51,7 +53,7 @@ export const LiveTickerTape = memo(function LiveTickerTape({
       value: topOpportunity
         ? `${topOpportunity.strategyTitle || topOpportunity.strategy} (${topOpportunity.dte}d)`
         : "SCANNING ORBIT...",
-      change: topOpportunity ? `Est. Yield ~${topOpportunity.annualizedYield || "38"}% APY` : "LIVE",
+      change: topOpportunity ? `Est. annualized ROM ~${topOpportunity.annualizedYield}%` : "WAITING FOR DATA",
       color: T.green,
       badge: "HOT",
     },

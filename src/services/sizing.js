@@ -1,4 +1,5 @@
 import { STRATEGY_CONFIG } from "../config/strategyConfig.js";
+import { evaluateEntryRules } from "./rulesEngine.js";
 
 /**
  * Parse Binance /eapi/v1/account response into a clean object.
@@ -92,6 +93,32 @@ export function parseAccountInfo(rawAccount) {
  */
 const LOT_SIZES = [0.01, 0.02, 0.03, 0.05, 0.10, 0.20, 0.50, 1.0];
 
+export function calculatePortfolioStress(currentPositions = [], btcPrice = 0, equity = 0) {
+  if (!Array.isArray(currentPositions) || currentPositions.length === 0 || btcPrice <= 0 || equity <= 0) {
+    return { available: false, scenarios: [], worstLoss: null, worstLossPct: null };
+  }
+
+  const hasGreeks = currentPositions.every(p => Number.isFinite(Number(p.positionDelta)) && Number.isFinite(Number(p.positionGamma)));
+  if (!hasGreeks) return { available: false, scenarios: [], worstLoss: null, worstLossPct: null };
+
+  const scenarios = [-20, -10, -5, 5, 10, 20].map(movePct => {
+    const spotMove = btcPrice * (movePct / 100);
+    const estimatedPnl = currentPositions.reduce((sum, p) => {
+      return sum + Number(p.positionDelta) * spotMove + 0.5 * Number(p.positionGamma) * spotMove * spotMove;
+    }, 0);
+    return { movePct, estimatedPnl: Math.round(estimatedPnl * 100) / 100 };
+  });
+  const worstPnl = Math.min(...scenarios.map(s => s.estimatedPnl));
+  const worstLoss = Math.max(0, -worstPnl);
+  return {
+    available: true,
+    method: "delta-gamma spot shock (excludes IV/skew/liquidity)",
+    scenarios,
+    worstLoss: Math.round(worstLoss * 100) / 100,
+    worstLossPct: Math.round((worstLoss / equity) * 1000) / 10,
+  };
+}
+
 /**
  * Calculate position sizing recommendations for a Short Strangle opportunity.
  *
@@ -140,9 +167,9 @@ export function calculatePositionSize(accountInfo, opp, btcPrice, sizeMultiplier
     const thetaPerDay = totalThetaPerBtc * size;
 
     // Can we afford this lot?
-    const canAfford = hasRealAccount ? (marginRequired <= marginHeadroom && marginRequired <= availableBalance) : true;
+    const canAfford = hasRealAccount ? (marginRequired <= marginHeadroom && marginRequired <= availableBalance) : false;
     // Does it comply with 3% per-trade rule?
-    const withinRule = hasRealAccount ? (marginRequired <= perTradeMax) : (size <= 0.01);
+    const withinRule = hasRealAccount ? (marginRequired <= perTradeMax) : false;
 
     return {
       size,
@@ -178,7 +205,7 @@ export function calculatePositionSize(accountInfo, opp, btcPrice, sizeMultiplier
     marginPerBtc: Math.round(marginPerBtc),
     sizeMultiplier,
     lots,
-    recommendedLot: hasRealAccount ? bestLot : defaultLot,
+    recommendedLot: hasRealAccount ? bestLot : null,
     defaultLot,
   };
 }
@@ -192,8 +219,10 @@ export function calculatePortfolioCapacity(accountInfo, currentPositions = [], b
   const equity = Number(accountInfo?.equity || 0);
   const availableBalance = Number(accountInfo?.availableBalance || 0);
   const marginUsed = Number(accountInfo?.marginUsed || 0);
-  const marginPct = accountInfo?.marginPct || (equity > 0 ? Math.round((marginUsed / equity) * 100) : 0);
+  const hasAccountData = Boolean(accountInfo && equity > 0);
+  const marginPct = accountInfo?.marginPct ?? (equity > 0 ? Math.round((marginUsed / equity) * 100) : null);
   const openCount = currentPositions.length;
+  const stress = calculatePortfolioStress(currentPositions, btcPrice, equity);
 
   // Margin required per standard 0.01 BTC lot
   const marginPerLot = Math.round((btcPrice || 65000) * 0.20 * 0.01);       // Strangle ~ $130
@@ -203,57 +232,69 @@ export function calculatePortfolioCapacity(accountInfo, currentPositions = [], b
   const maxLotsByCash = marginPerLot > 0 ? Math.floor(availableBalance / marginPerLot) : 0;
 
   // How many lots according to strict 30% margin cap rule?
-  const maxAllowedMargin = equity * 0.30;
+  const maxAllowedMargin = equity * (STRATEGY_CONFIG.sizing.maxTotalMarginPct / 100);
   const headroomByRule = Math.max(0, maxAllowedMargin - marginUsed);
   const maxLotsByRule = marginPerLot > 0 ? Math.floor(headroomByRule / marginPerLot) : 0;
 
   // Market volatility checks
   const isExtremeVolatility = Math.abs(marketContext?.change24h || 0) >= 5;
-  const hasPassOpportunities = opportunities.some(o => !o.isFullyHeld && (o.isPreferredDTE || o.isIdealDTE));
+  const hasPassOpportunities = opportunities.some(o => {
+    if (o.isFullyHeld || !(o.isPreferredDTE || o.isIdealDTE)) return false;
+    return !evaluateEntryRules(o, marketContext, accountInfo, currentPositions).isBlocked;
+  });
 
   let verdict = "WAIT"; // "BUY_NOW" | "CAUTION_WAIT" | "WAIT_SETUP" | "BLOCKED"
   let headline = "";
   let badgeColor = "amber";
   let actionText = "";
-  let remainingLots = maxLotsByCash;
+  let remainingLots = Math.min(maxLotsByCash, maxLotsByRule);
 
-  if (isExtremeVolatility) {
+  if (!hasAccountData || !btcPrice) {
+    verdict = "BLOCKED";
+    headline = "⚪ ยังประเมินกำลังพอร์ตไม่ได้";
+    actionText = "ต้องมีข้อมูล Account Equity, Available Margin และราคา BTC ที่เป็นปัจจุบันก่อน ระบบจึงจะคำนวณขนาด Position ได้";
+    badgeColor = "amber";
+    remainingLots = 0;
+  } else if (stress.available && stress.worstLossPct > STRATEGY_CONFIG.sizing.maxTotalPortfolioRiskPct) {
+    verdict = "BLOCKED";
+    headline = `🔴 งดเปิดเพิ่ม — Spot Stress Loss ≈ ${stress.worstLossPct}% ของพอร์ต`;
+    actionText = `เกินเพดาน Portfolio Stress Risk ${STRATEGY_CONFIG.sizing.maxTotalPortfolioRiskPct}% (ประมาณด้วย Delta-Gamma, ยังไม่รวม IV/Skew)`;
+    badgeColor = "red";
+    remainingLots = 0;
+  } else if (isExtremeVolatility) {
     verdict = "BLOCKED";
     headline = "❌ ห้ามเปิด Position เพิ่มในขณะนี้";
     actionText = `ตลาดผันผวนรุนแรง (BTC 24h Move ${marketContext.change24h}%) ตามกฎความปลอดภัยต้องงดเปิดไม้ใหม่จนกว่าตลาดจะนิ่ง`;
     badgeColor = "red";
     remainingLots = 0;
-  } else if (availableBalance < marginPerSingleLeg && equity > 0) {
+  } else if (availableBalance < marginPerSingleLeg) {
     verdict = "BLOCKED";
     headline = "❌ ไม่สามารถเปิดไม้ใหม่ได้ (เงิน Margin ไม่พอ)";
     actionText = `เงินคงเหลือใน Options Wallet มี $${availableBalance.toFixed(1)} ซึ่งน้อยกว่า Margin ขั้นต่ำสำหรับ 0.01 BTC ($${marginPerSingleLeg})`;
     badgeColor = "red";
     remainingLots = 0;
-  } else if (marginPct > 40 && equity > 0) {
-    // Current margin is over 40% (like user's 44.5%)
-    verdict = "CAUTION_WAIT";
-    headline = `🟡 แนะนำรอปิดทำกำไรก่อน (พอร์ตใช้ Margin ${marginPct}% แล้ว)`;
-    actionText = `กระเป๋ามีเงินพอเปิดได้อีก ${maxLotsByCash} ไม้ (0.01 BTC) แต่เนื่องจาก Margin รวมปัจจุบันเกินเพดานความปลอดภัย 30% แนะนำให้รอปิด TP ไม้เดิมก่อนเปิดเพิ่ม`;
-    badgeColor = "amber";
-    remainingLots = maxLotsByCash;
-  } else if (maxLotsByCash > 0 && hasPassOpportunities) {
+  } else if (marginPct >= STRATEGY_CONFIG.sizing.maxTotalMarginPct || maxLotsByRule <= 0) {
+    verdict = "BLOCKED";
+    headline = `🔴 งดเปิด Position เพิ่ม (Margin ${marginPct}% / ${STRATEGY_CONFIG.sizing.maxTotalMarginPct}% Max)`;
+    actionText = "พอร์ตชนเพดาน Margin ตามกฎแล้ว ต้องลดความเสี่ยงหรือปิด Position เดิมก่อนเปิดเพิ่ม";
+    badgeColor = "red";
+    remainingLots = 0;
+  } else if (remainingLots > 0 && hasPassOpportunities) {
     verdict = "BUY_NOW";
-    headline = `🟢 ควรเปิดได้เลย (พร้อมเข้าอีก ${maxLotsByCash} ไม้)`;
-    actionText = `สถานะพอร์ตพร้อม + มีคู่สัญญาผ่านเกณฑ์ DTE 18-25 วันใน Scanner แนะนำเปิดขนาด 0.01 BTC`;
+    headline = `🟢 พอร์ตมี Capacity สูงสุดอีก ${remainingLots} ไม้`;
+    actionText = "มีสัญญาที่ผ่านกรอบเบื้องต้น โปรดตรวจ Checklist, bid/ask และ Margin จริงบน Binance ก่อนส่งคำสั่ง";
     badgeColor = "green";
-    remainingLots = maxLotsByCash;
-  } else if (maxLotsByCash > 0) {
+  } else if (remainingLots > 0) {
     verdict = "WAIT_SETUP";
-    headline = `🟢 พอร์ตพร้อมเปิดได้อีก ${maxLotsByCash} ไม้ (กำลังรอจังหวะสัญญา)`;
-    actionText = `เงินในพอร์ตพร้อมเทรด แต่ควรรอสแกนเจอรอบที่ตรงเกณฑ์ Delta 0.15-0.20 และ DTE 18-25 วัน`;
+    headline = `🔵 พอร์ตมี Capacity อีก ${remainingLots} ไม้ แต่ยังไม่มี Setup ที่ผ่านเกณฑ์`;
+    actionText = "รอข้อมูลสัญญาที่ตรง Delta/DTE และตรวจสอบราคาที่ซื้อขายได้จริงก่อน";
     badgeColor = "blue";
-    remainingLots = maxLotsByCash;
   } else {
-    verdict = "READY";
-    headline = "🟢 พร้อมเปิดได้ 1 ไม้ (0.01 BTC)";
-    actionText = "แนะนำเปิดขนาดเริ่มต้น 0.01 BTC ต่อ 1 คู่สัญญา";
-    badgeColor = "green";
-    remainingLots = 1;
+    verdict = "BLOCKED";
+    headline = "🔴 ไม่มี Capacity สำหรับ Position ใหม่";
+    actionText = "Available Margin หรือเพดานความเสี่ยงไม่เพียงพอสำหรับขนาดขั้นต่ำ 0.01 BTC";
+    badgeColor = "red";
+    remainingLots = 0;
   }
 
   return {
@@ -269,7 +310,7 @@ export function calculatePortfolioCapacity(accountInfo, currentPositions = [], b
     availableBalance,
     equity,
     openCount,
+    hasAccountData,
+    stress,
   };
 }
-
-

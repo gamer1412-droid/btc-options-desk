@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { T } from "../tokens.js";
 import { fmtUSD, pnlColor } from "../utils.js";
 import { SoundFX } from "../services/soundFx.js";
+import { normalizePayoffSetup, calculateExpiryPayoff } from "../services/payoff.js";
 
 export function PayoffSimulator({
   setup, // Can be an opportunity or position object
@@ -11,36 +12,17 @@ export function PayoffSimulator({
   const currentSpot = btcPrice || 90000;
   const [simSpotOffsetPct, setSimSpotOffsetPct] = useState(0); // -30% to +30%
 
-  // Normalize setup info
-  const isStrangle = setup.strategy === "STRANGLE" || setup.strategy === "SKEWED_STRANGLE" || (setup.putLeg && setup.callLeg);
-  const isShortPut = !isStrangle && (setup.strategy === "SHORT_PUT" || setup.type === "PUT" || setup.putLeg);
-
-  const putStrike = setup.putLeg ? setup.putLeg.strike : isShortPut ? setup.strike : (setup.putStrike || currentSpot * 0.9);
-  const callStrike = setup.callLeg ? setup.callLeg.strike : setup.callStrike || currentSpot * 1.1;
-
-  const totalPremiumUSD = setup.totalPremiumUSD || setup.premiumUSD || setup.premium || 800;
-  const positionSize = setup.suggestedSize || setup.size || 1;
-  const maxDollarProfit = totalPremiumUSD * positionSize;
-
-  // Breakevens
-  const lowerBE = isShortPut
-    ? putStrike - (totalPremiumUSD / positionSize)
-    : putStrike - (totalPremiumUSD / positionSize);
-  const upperBE = isStrangle ? callStrike + (totalPremiumUSD / positionSize) : null;
+  const normalized = normalizePayoffSetup(setup, currentSpot);
+  const { isStrangle, putStrike, callStrike, positionSize, premiumPerBtc, maxDollarProfit } = normalized;
+  const lowerBE = normalized.lowerBreakeven;
+  const upperBE = normalized.upperBreakeven;
 
   // Simulated Spot Price based on slider
   const simulatedSpot = currentSpot * (1 + simSpotOffsetPct / 100);
 
   // Calculate Payoff at any spot price S
   const calculatePayoff = (S) => {
-    let loss = 0;
-    if (S < putStrike) {
-      loss += (putStrike - S) * positionSize;
-    }
-    if (isStrangle && S > callStrike) {
-      loss += (S - callStrike) * positionSize;
-    }
-    return maxDollarProfit - loss;
+    return calculateExpiryPayoff({ spot: S, putStrike, callStrike, premiumPerBtc, positionSize, isStrangle });
   };
 
   const simulatedPnl = calculatePayoff(simulatedSpot);

@@ -37,6 +37,7 @@ export function mapBinancePosition(raw, mark = {}) {
   // Greeks from mark endpoint (since /eapi/v1/position does not include Greeks)
   const delta = Number(raw.delta ?? mark.delta ?? 0);
   const theta = Number(raw.theta ?? mark.theta ?? 0);
+  const gamma = Number(raw.gamma ?? mark.gamma ?? 0);
   const vega = Number(raw.vega ?? mark.vega ?? 0);
   const markIVRaw = Number(raw.markIV ?? mark.markIV ?? 0);
   // markIV is a decimal fraction (0.65 = 65%)
@@ -55,15 +56,18 @@ export function mapBinancePosition(raw, mark = {}) {
     dte,
     delta,
     theta,
+    gamma,
     vega,
     iv,
     premium,       // Number USD (2 decimal precision)
     currentPrice,  // Number USD (2 decimal precision)
     pnl,           // Real Unrealized P&L (supports positive and negative decimals)
     size: qty,
+    positionDelta: delta * qty * (side === "Short" ? -1 : 1),
+    positionGamma: gamma * qty * (side === "Short" ? -1 : 1),
+    positionVega: vega * qty * (side === "Short" ? -1 : 1),
   };
 
   pos.status = classify(pos);
   return pos;
 }
-
