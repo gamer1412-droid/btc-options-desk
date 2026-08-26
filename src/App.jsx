@@ -8,6 +8,8 @@ import {
   checkEntryAlerts,
   getPersistedAlerts,
   savePersistedAlert,
+  getAlertPreferences,
+  saveAlertPreferences,
   ALERT_STORAGE_KEY,
   ENTRY_STORAGE_KEY,
 } from "./services/alerts.js";
@@ -27,6 +29,7 @@ import { LiveTickerTape } from "./components/LiveTickerTape.jsx";
 import { SentimentGauge } from "./components/SentimentGauge.jsx";
 import { PayoffSimulator } from "./components/PayoffSimulator.jsx";
 import { PaperTradingDrawer } from "./components/PaperTradingDrawer.jsx";
+import { AlertSettingsModal } from "./components/AlertSettingsModal.jsx";
 
 const POLL_INTERVAL_MS = 15000; // refresh live data every 15 s
 
@@ -43,7 +46,8 @@ export default function App() {
   const [analyzing, setAnalyzing]               = useState(null);
   const [tab, setTab]                           = useState("positions"); // "positions" | "scanner" | "rules"
   const [telegramStatus, setTelegramStatus]     = useState(null); // "ok" | "error" | null
-  const [alertsEnabled, setAlertsEnabled]       = useState(true);
+  const [alertPrefs, setAlertPrefs]             = useState(() => getAlertPreferences());
+  const [alertModalOpen, setAlertModalOpen]     = useState(false);
   const [accountInfo, setAccountInfo]           = useState(null);
   const [isMuted, setIsMuted]                   = useState(() => SoundFX.isMuted());
   const [payoffSetup, setPayoffSetup]           = useState(null);
@@ -127,14 +131,15 @@ export default function App() {
         setPositions(mappedPositions);
         setConnError(null);
 
-        if (alertsEnabled) {
-          const triggered = checkAlerts(mappedPositions, alertedIdsRef.current);
+        if (alertPrefs.enabled) {
+          const triggered = checkAlerts(mappedPositions, alertedIdsRef.current, alertPrefs);
           if (triggered.length > 0) {
             SoundFX.playWarningAlert();
           }
-          for (const { pos, reason } of triggered) {
-            alertedIdsRef.current.add(pos.id);
-            savePersistedAlert(pos.id, ALERT_STORAGE_KEY);
+          for (const alert of triggered) {
+            alertedIdsRef.current.add(alert.alertKey);
+            savePersistedAlert(alert.alertKey, ALERT_STORAGE_KEY);
+            const pos = alert.pos;
             const pct = pos.premium > 0
               ? ((pos.premium - pos.currentPrice) / pos.premium) * 100 : 0;
             sendTelegram("warning", {
@@ -144,7 +149,9 @@ export default function App() {
               delta: pos.delta,
               pnl: pos.pnl,
               pctProfit: pct.toFixed(0),
-              warningReason: reason,
+              warningReason: alert.reason,
+              alertLevel: alert.alertLevel,
+              tacticalAction: alert.tacticalAction,
             });
           }
         }
@@ -168,14 +175,14 @@ export default function App() {
         );
         setOpportunities(opps);
 
-        if (alertsEnabled && opps.length > 0) {
-          const newEntrySignals = checkEntryAlerts(opps, alertedEntryIdsRef.current, updatedMarketContext, parsedAccount, mappedPositions);
+        if (alertPrefs.enabled && opps.length > 0) {
+          const newEntrySignals = checkEntryAlerts(opps, alertedEntryIdsRef.current, updatedMarketContext, parsedAccount, mappedPositions, alertPrefs);
           if (newEntrySignals.length > 0) {
             SoundFX.playSuccessChime();
           }
           for (const signal of newEntrySignals) {
-            alertedEntryIdsRef.current.add(signal.id);
-            savePersistedAlert(signal.id, ENTRY_STORAGE_KEY);
+            alertedEntryIdsRef.current.add(signal.alertKey);
+            savePersistedAlert(signal.alertKey, ENTRY_STORAGE_KEY);
             const signalType = signal.strategy === "SHORT_PUT"
               ? "short_put_signal"
               : signal.strategy === "SKEWED_STRANGLE"
@@ -192,7 +199,7 @@ export default function App() {
     } finally {
       setLoadingPositions(false);
     }
-  }, [alertsEnabled]);
+  }, [alertPrefs]);
 
   useEffect(() => {
     fetchLiveData();
@@ -212,6 +219,8 @@ export default function App() {
         setIsMuted(muted);
       } else if (e.key.toLowerCase() === "p") {
         setPaperModalOpen(v => !v);
+      } else if (e.key.toLowerCase() === "a") {
+        setAlertModalOpen(v => !v);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -334,50 +343,34 @@ export default function App() {
             )}
           </button>
 
-          {/* Telegram alert toggle */}
+          {/* Telegram alert engine button */}
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <button
               id="alerts-toggle"
               onClick={() => {
                 SoundFX.playClick();
-                setAlertsEnabled(v => !v);
+                setAlertModalOpen(true);
               }}
+              title="Configure 24/7 Alerts & Notification Filters (Hotkey: A)"
               style={{
-                background: alertsEnabled ? T.greenDim : T.bg2,
-                border: `1px solid ${alertsEnabled ? T.greenMid : T.border}`,
-                color: alertsEnabled ? T.green : T.textMuted,
+                background: alertPrefs.enabled ? `linear-gradient(135deg, ${T.greenDim}, ${T.bg2})` : T.bg2,
+                border: `1px solid ${alertPrefs.enabled ? T.greenMid : T.border}`,
+                color: alertPrefs.enabled ? T.green : T.textMuted,
                 borderRadius: 6, padding: "5px 10px", cursor: "pointer",
                 fontFamily: T.fontSans, fontSize: 11, fontWeight: 700, letterSpacing: 0.5,
-                display: "flex", alignItems: "center", gap: 5,
+                display: "flex", alignItems: "center", gap: 6,
+                boxShadow: alertPrefs.enabled ? `0 0 10px ${T.greenDim}` : "none",
                 transition: "all 0.2s ease",
               }}
             >
-              <span>📨</span>
-              <span>ALERTS {alertsEnabled ? "ON" : "OFF"}</span>
-            </button>
-
-            <button
-              id="telegram-test"
-              onClick={async () => {
-                SoundFX.playClick();
-                const r = await fetch("/api/telegram", {
-                  method: "POST", headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ type: "test" }),
-                });
-                const d = await r.json();
-                if (d.ok) SoundFX.playSuccessChime();
-                setTelegramStatus(d.ok ? "ok" : "error");
-                setTimeout(() => setTelegramStatus(null), 3000);
-              }}
-              style={{
-                background: T.bg2, border: `1px solid ${T.border}`,
-                color: telegramStatus === "ok" ? T.green : telegramStatus === "error" ? T.red : T.textSecondary,
-                borderRadius: 6, padding: "5px 10px", cursor: "pointer",
-                fontFamily: T.fontSans, fontSize: 11, fontWeight: 600,
-                transition: "all 0.2s ease",
-              }}
-            >
-              {telegramStatus === "ok" ? "✓ SENT" : telegramStatus === "error" ? "✗ FAIL" : "TEST"}
+              <span>🔔</span>
+              <span>ALERTS {alertPrefs.enabled ? "ACTIVE" : "MUTED"}</span>
+              <span style={{
+                background: alertPrefs.enabled ? T.green : T.border,
+                color: "#05080c", borderRadius: 4, padding: "1px 4px", fontSize: 9, fontWeight: 900
+              }}>
+                v2.5
+              </span>
             </button>
           </div>
 
@@ -605,6 +598,16 @@ export default function App() {
           onClose={() => setPaperModalOpen(false)}
         />
       )}
+
+      {/* ── Alert Settings Modal ────────────────────────────────────────────── */}
+      <AlertSettingsModal
+        isOpen={alertModalOpen}
+        onClose={() => setAlertModalOpen(false)}
+        positions={positions}
+        marketContext={marketContext}
+        accountInfo={accountInfo}
+        onPreferencesChange={(updated) => setAlertPrefs(updated)}
+      />
 
       {/* ── Analysis Panel (modal) ───────────────────────────────────────────── */}
       {analyzing && (

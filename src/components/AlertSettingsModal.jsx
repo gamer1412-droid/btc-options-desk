@@ -1,0 +1,392 @@
+import { useState } from "react";
+import { T } from "../tokens.js";
+import { SoundFX } from "../services/soundFx.js";
+import {
+  getAlertPreferences,
+  saveAlertPreferences,
+  clearPersistedAlerts,
+  sendTelegram,
+  buildDailyBriefingData,
+} from "../services/alerts.js";
+
+export function AlertSettingsModal({
+  isOpen,
+  onClose,
+  positions = [],
+  marketContext = {},
+  accountInfo = null,
+  onPreferencesChange,
+}) {
+  const [prefs, setPrefs] = useState(() => getAlertPreferences());
+  const [testStatus, setTestStatus] = useState(null); // "loading" | "ok" | "error" | null
+  const [briefingStatus, setBriefingStatus] = useState(null); // "loading" | "ok" | "error" | null
+  const [resetSuccess, setResetSuccess] = useState(false);
+
+  if (!isOpen) return null;
+
+  const handleToggle = (key) => {
+    SoundFX.playClick();
+    const updated = { ...prefs, [key]: !prefs[key] };
+    setPrefs(updated);
+    saveAlertPreferences(updated);
+    if (onPreferencesChange) onPreferencesChange(updated);
+  };
+
+  const handleTestAlert = async () => {
+    SoundFX.playClick();
+    setTestStatus("loading");
+    const res = await sendTelegram("test");
+    if (res && res.ok) {
+      SoundFX.playSuccessChime();
+      setTestStatus("ok");
+    } else {
+      SoundFX.playWarningAlert();
+      setTestStatus("error");
+    }
+    setTimeout(() => setTestStatus(null), 3500);
+  };
+
+  const handleSendBriefing = async () => {
+    SoundFX.playClick();
+    setBriefingStatus("loading");
+    const briefingData = buildDailyBriefingData(positions, marketContext, accountInfo);
+    const res = await sendTelegram("daily_briefing", briefingData);
+    if (res && res.ok) {
+      SoundFX.playSuccessChime();
+      setBriefingStatus("ok");
+    } else {
+      SoundFX.playWarningAlert();
+      setBriefingStatus("error");
+    }
+    setTimeout(() => setBriefingStatus(null), 3500);
+  };
+
+  const handleResetCooldowns = () => {
+    SoundFX.playClick();
+    clearPersistedAlerts();
+    setResetSuccess(true);
+    setTimeout(() => setResetSuccess(false), 3000);
+  };
+
+  const toggleRow = (key, title, desc, icon, badgeColor = T.green) => (
+    <div
+      onClick={() => handleToggle(key)}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "12px 16px",
+        background: prefs[key] && prefs.enabled ? `${badgeColor}0c` : T.bg2,
+        border: `1px solid ${prefs[key] && prefs.enabled ? `${badgeColor}44` : T.border}`,
+        borderRadius: 8,
+        cursor: "pointer",
+        transition: "all 0.2s ease",
+        marginBottom: 10,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, paddingRight: 12 }}>
+        <span style={{ fontSize: 20 }}>{icon}</span>
+        <div>
+          <div style={{ color: T.textPrimary, fontSize: 13, fontWeight: 700, fontFamily: T.fontSans }}>
+            {title}
+          </div>
+          <div style={{ color: T.textSecondary, fontSize: 11, marginTop: 2, fontFamily: T.fontSans }}>
+            {desc}
+          </div>
+        </div>
+      </div>
+
+      {/* Switch Toggle */}
+      <div
+        style={{
+          width: 44,
+          height: 24,
+          borderRadius: 12,
+          background: prefs[key] && prefs.enabled ? badgeColor : "#334155",
+          padding: 2,
+          transition: "all 0.25s ease",
+          display: "flex",
+          alignItems: "center",
+          boxShadow: prefs[key] && prefs.enabled ? `0 0 10px ${badgeColor}66` : "none",
+        }}
+      >
+        <div
+          style={{
+            width: 20,
+            height: 20,
+            borderRadius: "50%",
+            background: "#ffffff",
+            transform: prefs[key] && prefs.enabled ? "translateX(20px)" : "translateX(0px)",
+            transition: "all 0.25s ease",
+          }}
+        />
+      </div>
+    </div>
+  );
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        backgroundColor: "rgba(5, 7, 10, 0.82)",
+        backdropFilter: "blur(8px)",
+        zIndex: 9999,
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        padding: 20,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          background: `linear-gradient(180deg, ${T.bg1}, ${T.bg0})`,
+          border: `1px solid ${T.borderActive}`,
+          borderRadius: 16,
+          width: "100%",
+          maxWidth: 580,
+          maxHeight: "90vh",
+          overflowY: "auto",
+          boxShadow: "0 25px 60px rgba(0,0,0,0.8), 0 0 30px rgba(0,240,168,0.12)",
+          padding: 24,
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{
+              width: 36, height: 36, borderRadius: 10,
+              background: T.greenDim, border: `1px solid ${T.greenMid}`,
+              display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
+            }}>
+              🔔
+            </div>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 900, color: T.textPrimary, fontFamily: T.fontSans, letterSpacing: 0.5 }}>
+                ALERT & NOTIFICATION ENGINE
+              </div>
+              <div style={{ fontSize: 11, color: T.green, fontFamily: T.font, fontWeight: 700 }}>
+                24/7 AUTOMATION & STATE ESCALATION v2.5
+              </div>
+            </div>
+          </div>
+
+          <button
+            onClick={onClose}
+            style={{
+              background: T.bg2,
+              border: `1px solid ${T.border}`,
+              color: T.textSecondary,
+              borderRadius: 8,
+              width: 32,
+              height: 32,
+              cursor: "pointer",
+              fontSize: 16,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              transition: "all 0.2s ease",
+            }}
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Master Switch */}
+        <div
+          onClick={() => handleToggle("enabled")}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "14px 18px",
+            background: prefs.enabled ? `linear-gradient(135deg, ${T.greenDim}, ${T.bg2})` : T.bg2,
+            border: `1px solid ${prefs.enabled ? T.green : T.border}`,
+            borderRadius: 12,
+            cursor: "pointer",
+            marginBottom: 20,
+            boxShadow: prefs.enabled ? `0 0 20px ${T.greenDim}` : "none",
+          }}
+        >
+          <div>
+            <div style={{ color: T.textPrimary, fontSize: 14, fontWeight: 800 }}>
+              {prefs.enabled ? "🟢 SYSTEM ALERTS: ACTIVE (เปิดใช้งาน)" : "🔴 SYSTEM ALERTS: MUTED (ปิดทั้งหมด)"}
+            </div>
+            <div style={{ color: T.textSecondary, fontSize: 11, marginTop: 2 }}>
+              ตรวจจับความเสี่ยงแบบ Realtime ในแอป และทำงานเบื้องหลัง 24/7 ผ่าน Vercel Cron
+            </div>
+          </div>
+
+          <div
+            style={{
+              width: 48,
+              height: 26,
+              borderRadius: 13,
+              background: prefs.enabled ? T.green : "#334155",
+              padding: 2,
+              transition: "all 0.25s ease",
+              display: "flex",
+              alignItems: "center",
+            }}
+          >
+            <div
+              style={{
+                width: 22,
+                height: 22,
+                borderRadius: "50%",
+                background: "#ffffff",
+                transform: prefs.enabled ? "translateX(22px)" : "translateX(0px)",
+                transition: "all 0.25s ease",
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Categories */}
+        <div style={{ opacity: prefs.enabled ? 1 : 0.45, transition: "opacity 0.2s ease" }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: T.textMuted, letterSpacing: 1, marginBottom: 8, fontFamily: T.font }}>
+            NOTIFICATION CHANNELS & FILTERS
+          </div>
+
+          {toggleRow(
+            "criticalDefense",
+            "🚨 Critical Defense (ฉุกเฉินระดับสูง)",
+            "Stop Loss แตะ 2× Premium, Delta >= 0.65 (Action Level), หรือ DTE <= 2 วัน",
+            "🚨",
+            T.red
+          )}
+
+          {toggleRow(
+            "warningDefense",
+            "⚠️ Early Defense (เฝ้าระวังและเตรียมตัว)",
+            "Delta >= 0.35 (เฝ้าระวัง) และ Delta >= 0.50 (Defensive Mode เตรียม Roll)",
+            "⚠️",
+            T.amber
+          )}
+
+          {toggleRow(
+            "takeProfit",
+            "🎯 Take Profit 50% Target",
+            "กำไรถึงเป้าหมาย 50% ของ Premium รับ — แนะนำปิดล็อกกำไรตามวินัย",
+            "🎯",
+            T.green
+          )}
+
+          {toggleRow(
+            "entrySignals",
+            "💎 Scanner Entry Signals (สัญญาณเข้าเทรด)",
+            "สัญญาณ Short Put & Strangle คุณภาพเกรด A+ ที่ผ่านเกณฑ์ Rules Engine",
+            "💎",
+            T.cyan
+          )}
+
+          {toggleRow(
+            "dailyBriefing",
+            "📊 Daily Portfolio Briefing (สรุปพอร์ตประจำวัน)",
+            "รายงานสรุปสถานะพอร์ต, P&L รวม, Theta/วัน และความเสี่ยงทุกวันอัตโนมัติ",
+            "📊",
+            T.purple
+          )}
+        </div>
+
+        {/* Action Buttons */}
+        <div style={{ marginTop: 22, borderTop: `1px solid ${T.border}`, paddingTop: 18 }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: T.textMuted, letterSpacing: 1, marginBottom: 10, fontFamily: T.font }}>
+            TEST & QUICK ACTIONS
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+            <button
+              onClick={handleTestAlert}
+              disabled={testStatus === "loading"}
+              style={{
+                padding: "10px 14px",
+                background: testStatus === "ok" ? T.greenDim : testStatus === "error" ? T.redDim : T.bg2,
+                border: `1px solid ${testStatus === "ok" ? T.green : testStatus === "error" ? T.red : T.border}`,
+                color: testStatus === "ok" ? T.green : testStatus === "error" ? T.red : T.textPrimary,
+                borderRadius: 8,
+                cursor: "pointer",
+                fontFamily: T.fontSans,
+                fontSize: 12,
+                fontWeight: 700,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                transition: "all 0.2s ease",
+              }}
+            >
+              <span>📨</span>
+              <span>{testStatus === "loading" ? "ส่งสัญญาณ..." : testStatus === "ok" ? "✓ สำเร็จ!" : testStatus === "error" ? "✗ ล้มเหลว" : "ทดสอบ Telegram Bot"}</span>
+            </button>
+
+            <button
+              onClick={handleSendBriefing}
+              disabled={briefingStatus === "loading"}
+              style={{
+                padding: "10px 14px",
+                background: briefingStatus === "ok" ? T.purpleDim : briefingStatus === "error" ? T.redDim : T.bg2,
+                border: `1px solid ${briefingStatus === "ok" ? T.purple : briefingStatus === "error" ? T.red : T.border}`,
+                color: briefingStatus === "ok" ? T.purple : briefingStatus === "error" ? T.red : T.textPrimary,
+                borderRadius: 8,
+                cursor: "pointer",
+                fontFamily: T.fontSans,
+                fontSize: 12,
+                fontWeight: 700,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                transition: "all 0.2s ease",
+              }}
+            >
+              <span>📊</span>
+              <span>{briefingStatus === "loading" ? "กำลังสรุป..." : briefingStatus === "ok" ? "✓ ส่งสรุปแล้ว!" : briefingStatus === "error" ? "✗ ล้มเหลว" : "ส่ง Daily Briefing เดี๋ยวนี้"}</span>
+            </button>
+          </div>
+
+          <button
+            onClick={handleResetCooldowns}
+            style={{
+              width: "100%",
+              padding: "9px 14px",
+              background: resetSuccess ? T.greenDim : "transparent",
+              border: `1px dashed ${resetSuccess ? T.green : T.borderHover}`,
+              color: resetSuccess ? T.green : T.textSecondary,
+              borderRadius: 8,
+              cursor: "pointer",
+              fontFamily: T.fontSans,
+              fontSize: 11,
+              fontWeight: 600,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              transition: "all 0.2s ease",
+            }}
+          >
+            <span>🔄</span>
+            <span>{resetSuccess ? "✓ ล้างประวัติ Cooldown แล้ว (สามารถยิง Alert ซ้ำได้ทันที)" : "ล้าง Cooldown History (สำหรับทดสอบการแจ้งเตือนซ้ำ)"}</span>
+          </button>
+        </div>
+
+        {/* Tip info */}
+        <div style={{
+          marginTop: 18,
+          background: T.bg2,
+          borderRadius: 8,
+          padding: "10px 14px",
+          border: `1px solid ${T.border}`,
+          fontSize: 11,
+          color: T.textSecondary,
+          lineHeight: 1.5,
+          fontFamily: T.fontSans,
+        }}>
+          💡 <strong>Tip:</strong> ระบบมี <strong>State-Aware Escalation</strong> ในตัว — สัญญาที่เตือน Delta 0.35 จะไม่บล็อกสัญญาณ Delta 0.65 หรือ Stop Loss และ Vercel Cron จะคอยสแกนตรวจสอบทุก 10 นาทีตลอด 24 ชม.
+        </div>
+      </div>
+    </div>
+  );
+}

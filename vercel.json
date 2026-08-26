@@ -11,6 +11,15 @@
     },
     "api/telegram.js": {
       "maxDuration": 10
+    },
+    "api/cron.js": {
+      "maxDuration": 20
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron",
+      "schedule": "*/10 * * * *"
+    }
+  ]
 }
