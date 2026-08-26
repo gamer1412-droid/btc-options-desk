@@ -77,11 +77,12 @@ _ระบบสรุปข้อมูลอัตโนมัติประ�
   // ─── Position Defense & Risk Alert ───────────────────────────────────────────
   else if (type === "warning") {
     const d = data || {};
-    const isStopLoss = d.warningReason?.includes("STOP") || d.alertLevel === "CRITICAL";
+    const isStopLoss = d.warningReason?.includes("STOP");
     const isTP = d.warningReason?.includes("TAKE PROFIT") || d.alertLevel === "TAKE_PROFIT" || Number(d.pctProfit) >= 50;
     const isDteExit = d.warningReason?.includes("DTE EXIT");
-    const emoji = isTP ? "🎯" : isStopLoss ? "🚨" : isDteExit ? "⏰" : "⚠️";
-    const headerTitle = isTP ? "TAKE PROFIT TARGET" : isStopLoss ? "CRITICAL RISK DEFENSE" : isDteExit ? "DTE EXPIRY EXIT" : "DEFENSIVE REVIEW";
+    const isCritical = d.alertLevel === "CRITICAL";
+    const emoji = isTP ? "🎯" : isDteExit ? "⏰" : (isStopLoss || isCritical) ? "🚨" : "⚠️";
+    const headerTitle = isTP ? "TAKE PROFIT TARGET" : isDteExit ? "DTE EXPIRY EXIT" : (isStopLoss || isCritical) ? "CRITICAL RISK DEFENSE" : "DEFENSIVE REVIEW";
 
     message = `${emoji} *${headerTitle} — ${d.posType || "OPTION"}*
 ━━━━━━━━━━━━━━━━━━━━━
@@ -93,7 +94,7 @@ _ระบบสรุปข้อมูลอัตโนมัติประ�
 ${d.warningReason}
 
 💡 *Tactical Action:*
-${d.tacticalAction || (isTP ? "ปิดทำกำไร 50% ตามแผนเพื่อเคลียร์ Margin" : "ตรวจสอบกราฟและพิจารณา Roll หรือปิดสัญญาตามวินัย")}
+${d.tacticalAction || (isTP ? "ปิดทำกำไรตามเป้าหมายของระบบเพื่อเคลียร์ Margin" : "ตรวจสอบกราฟและพิจารณา Roll หรือปิดสัญญาตามวินัย")}
 ━━━━━━━━━━━━━━━━━━━━━
 ⚡ _กดปุ่มด้านล่างเพื่อเปิดระบบหรือจัดการบน Binance ได้ทันที_`;
   }

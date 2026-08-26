@@ -7,6 +7,9 @@ import { claimAlert } from "../lib/alertState.js";
 import { buildMarketIndicators } from "../lib/marketIndicators.js";
 import { classifyMarketRegime } from "../src/services/marketRegime.js";
 import { scanEntryOpportunities, determineOptimalMarketProfile } from "../src/services/scanner.js";
+import { evaluateEntryRules } from "../src/services/rulesEngine.js";
+import { checkAlerts, DEFAULT_ALERT_PREFERENCES } from "../src/services/alerts.js";
+import { parseAccountInfo } from "../src/services/sizing.js";
 
 const BINANCE_OPTIONS_BASE = "https://eapi.binance.com";
 const BINANCE_SPOT_BASE = "https://api.binance.com";
@@ -31,7 +34,7 @@ async function signedGet(base, path, params, apiKey, apiSecret) {
   return res.json();
 }
 
-async function sendTelegramMessage(type, data) {
+export async function sendTelegramMessage(type, data) {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = String(process.env.TELEGRAM_CHAT_ID || "");
   if (!botToken || !chatId) return { skipped: true, reason: "No credentials" };
@@ -73,11 +76,12 @@ ${d.criticalCount > 0 ? `🚨 *ต้องตรวจสอบ:* มี ${d.cr
 _ระบบสรุปข้อมูลอัตโนมัติ 24/7_`;
   } else if (type === "warning") {
     const d = data || {};
-    const isStopLoss = d.warningReason?.includes("STOP") || d.alertLevel === "CRITICAL";
+    const isStopLoss = d.warningReason?.includes("STOP");
     const isTP = d.warningReason?.includes("TAKE PROFIT") || d.alertLevel === "TAKE_PROFIT" || Number(d.pctProfit) >= 50;
     const isDteExit = d.warningReason?.includes("DTE EXIT");
-    const emoji = isTP ? "🎯" : isStopLoss ? "🚨" : isDteExit ? "⏰" : "⚠️";
-    const headerTitle = isTP ? "TAKE PROFIT TARGET" : isStopLoss ? "CRITICAL RISK DEFENSE" : isDteExit ? "DTE EXPIRY EXIT" : "DEFENSIVE REVIEW";
+    const isCritical = d.alertLevel === "CRITICAL";
+    const emoji = isTP ? "🎯" : isDteExit ? "⏰" : (isStopLoss || isCritical) ? "🚨" : "⚠️";
+    const headerTitle = isTP ? "TAKE PROFIT TARGET" : isDteExit ? "DTE EXPIRY EXIT" : (isStopLoss || isCritical) ? "CRITICAL RISK DEFENSE" : "DEFENSIVE REVIEW";
 
     message = `${emoji} *${headerTitle} — ${d.posType || "OPTION"}*
 ━━━━━━━━━━━━━━━━━━━━━
@@ -89,9 +93,44 @@ _ระบบสรุปข้อมูลอัตโนมัติ 24/7_`;
 ${d.warningReason}
 
 💡 *Tactical Action:*
-${d.tacticalAction || (isTP ? "ปิดทำกำไร 50% ตามแผนเพื่อเคลียร์ Margin" : "ตรวจสอบกราฟและพิจารณา Roll หรือปิดสัญญาตามวินัย")}
+${d.tacticalAction || (isTP ? "ปิดทำกำไรตามเป้าหมายของระบบเพื่อเคลียร์ Margin" : "ตรวจสอบกราฟและพิจารณา Roll หรือปิดสัญญาตามวินัย")}
 ━━━━━━━━━━━━━━━━━━━━━
 ⚡ _ระบบตรวจจับอัตโนมัติ 24/7_`;
+  } else if (type === "short_put_signal") {
+    const d = data || {};
+    message = `🟢 *ENTRY SIGNAL — BTC Bullish Short Put*
+━━━━━━━━━━━━━━━━━━━━━
+📅 *Expiry:* ${d.expiry} (${d.dte} วัน)
+₿ *BTC Spot:* $${Number(d.btcPrice || 0).toLocaleString()} | IV: ${d.marketIv ?? "N/A"}%
+📍 *Short Put:* $${Number(d.putStrike || d.strike || 0).toLocaleString()} | Delta \`${d.putDelta || d.delta}\`
+💰 *Premium:* ~$${d.totalPremium} / 1 BTC | Theta: +$${d.totalTheta}/วัน
+🛡️ *Buffer:* ${d.putDistancePct}% | Breakeven: $${Number(d.breakevenLow || 0).toLocaleString()}
+━━━━━━━━━━━━━━━━━━━━━
+_ผ่าน Market Regime และกฎความเสี่ยงแล้ว — ตรวจราคา execute จริงก่อนเปิดสถานะ_`;
+  } else if (type === "skewed_strangle_signal") {
+    const d = data || {};
+    message = `⚡ *ENTRY SIGNAL — BTC Skewed Strangle*
+━━━━━━━━━━━━━━━━━━━━━
+📅 *Expiry:* ${d.expiry} (${d.dte} วัน)
+₿ *BTC Spot:* $${Number(d.btcPrice || 0).toLocaleString()} | IV: ${d.marketIv ?? "N/A"}%
+📍 *Short Put:* $${Number(d.putStrike || 0).toLocaleString()} | Delta \`${d.putDelta}\`
+📍 *Wide Short Call:* $${Number(d.callStrike || 0).toLocaleString()} | Delta \`+${d.callDelta}\`
+💰 *Premium:* ~$${d.totalPremium} / 1 BTC | Theta: +$${d.totalTheta}/วัน
+🛡️ *Safe Zone:* $${Number(d.breakevenLow || 0).toLocaleString()} — $${Number(d.breakevenHigh || 0).toLocaleString()}
+━━━━━━━━━━━━━━━━━━━━━
+_ผ่าน Market Regime และกฎความเสี่ยงแล้ว — ตรวจราคา execute จริงก่อนเปิดสถานะ_`;
+  } else if (type === "strangle_signal") {
+    const d = data || {};
+    message = `🟣 *ENTRY SIGNAL — BTC Short Strangle*
+━━━━━━━━━━━━━━━━━━━━━
+📅 *Expiry:* ${d.expiry} (${d.dte} วัน)
+₿ *BTC Spot:* $${Number(d.btcPrice || 0).toLocaleString()} | IV: ${d.marketIv ?? "N/A"}%
+📍 *Short Put:* $${Number(d.putStrike || 0).toLocaleString()} | Delta \`${d.putDelta}\`
+📍 *Short Call:* $${Number(d.callStrike || 0).toLocaleString()} | Delta \`+${d.callDelta}\`
+💰 *Premium:* ~$${d.totalPremium} / 1 BTC | Theta: +$${d.totalTheta}/วัน
+🛡️ *Safe Zone:* $${Number(d.breakevenLow || 0).toLocaleString()} — $${Number(d.breakevenHigh || 0).toLocaleString()}
+━━━━━━━━━━━━━━━━━━━━━
+_ผ่าน Market Regime และกฎความเสี่ยงแล้ว — ตรวจราคา execute จริงก่อนเปิดสถานะ_`;
   }
 
   if (!message) return { skipped: true };
@@ -104,12 +143,23 @@ ${d.tacticalAction || (isTP ? "ปิดทำกำไร 50% ตามแผ�
     reply_markup: { inline_keyboard: buttons },
   };
 
-  const r = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+  let r = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  return await r.json();
+  let result = await r.json();
+  if (!result.ok && payload.parse_mode) {
+    delete payload.parse_mode;
+    r = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    result = await r.json();
+  }
+  if (!r.ok || !result.ok) throw new Error(result.description || `Telegram HTTP ${r.status}`);
+  return result;
 }
 
 export default async function handler(req, res) {
@@ -233,10 +283,7 @@ export default async function handler(req, res) {
       try {
         const rawAccount = await signedGet(BINANCE_OPTIONS_BASE, "/eapi/v1/marginAccount", {}, apiKey, apiSecret);
         if (rawAccount && !rawAccount.error) {
-          accountInfo = {
-            equity: Number(rawAccount.equity || rawAccount.totalMarginBalance || 0),
-            marginRatio: Number(rawAccount.marginRatio || 0),
-          };
+          accountInfo = parseAccountInfo(rawAccount);
         }
       } catch (eAcct) {
         // ignore fallback
@@ -261,7 +308,12 @@ export default async function handler(req, res) {
       results.entrySignalsChecked = opportunities.length;
 
       // Send at most one best entry signal per cron run, with a persistent cooldown.
-      const bestOpportunity = opportunities[0];
+      const bestOpportunity = opportunities.find(opportunity => {
+        const evaluation = evaluateEntryRules(opportunity, serverMarketContext, accountInfo, positions);
+        if (evaluation.isBlocked) return false;
+        opportunity.evaluation = evaluation;
+        return true;
+      });
       if (bestOpportunity) {
         const entryKey = `entry:${bestOpportunity.id}:${bestOpportunity.strategy}:${marketRegime.regime}`;
         const shouldSendEntry = await claimAlert(entryKey, 8 * 60 * 60);
@@ -279,61 +331,27 @@ export default async function handler(req, res) {
     }
 
     // 4. Evaluate Positions for Critical Risk / Take Profit
-    for (const pos of positions) {
-      if (!alertsEnabled) break;
-      const absDelta = Math.abs(pos.delta);
+    const serverPositionAlerts = alertsEnabled
+      ? checkAlerts(positions, new Set(), DEFAULT_ALERT_PREFERENCES)
+      : [];
+    for (const alert of serverPositionAlerts) {
+      const pos = alert.pos;
       const pct = pos.premium > 0 ? ((pos.premium - pos.currentPrice) / pos.premium) * 100 : 0;
-
-      let triggered = null;
-
-      // Hard Stop Loss (2.0x Premium)
-      if (pos.pnl < 0 && Math.abs(pos.pnl) >= pos.premium * 2.0) {
-        triggered = {
-          alertLevel: "CRITICAL",
-          warningReason: `🚨 HARD STOP LOSS: ขาดทุนแตะ 2× Premium (${pos.pnl} USD) — ปิดตำแหน่งทันที!`,
-          tacticalAction: "ปิดสถานะทันทีเพื่อตัดขาดทุนตามวินัย 2× Premium",
-        };
-      }
-      // DTE Exit (<= 2 days)
-      else if (pos.dte <= 2) {
-        triggered = {
-          alertLevel: "CRITICAL",
-          warningReason: `⏰ DTE EXIT: เหลือ ${pos.dte} วัน — ห้ามถือข้าม Expiry (Gamma Risk สูง)`,
-          tacticalAction: "ปิดทำกำไร/ตัดความเสี่ยงก่อนวันหมดอายุ หลีกเลี่ยง Gamma Risk",
-        };
-      }
-      // Take profit 50%
-      else if (pct >= 50) {
-        triggered = {
-          alertLevel: "TAKE_PROFIT",
-          warningReason: `🎯 TAKE PROFIT: กำไร ${pct.toFixed(0)}% (>= 50%) — ปิดทำกำไรตามแผน`,
-          tacticalAction: "ปิดทำกำไร 50% ตามระบบเพื่อเคลียร์ Margin ไปเปิดรอบใหม่",
-        };
-      }
-      // Delta >= 0.65 Action
-      else if (absDelta >= 0.65) {
-        triggered = {
-          alertLevel: "CRITICAL",
-          warningReason: `🚨 ACTION REQUIRED: Delta ${pos.delta.toFixed(2)} >= 0.65 — ต้อง Close หรือ Roll 1 ครั้ง`,
-          tacticalAction: "ปิดทำกำไรขาที่ปลอดภัย และ Roll ขาที่ถูกทดสอบออกไป หรือปิดทั้งคู่",
-        };
-      }
-
-      if (triggered) {
-        const alertStateKey = `position:${pos.id}:${triggered.alertLevel}:${triggered.warningReason.split(":")[0]}`;
-        const shouldSend = await claimAlert(alertStateKey, 8 * 60 * 60);
-        if (!shouldSend) continue;
-        await sendTelegramMessage("warning", {
-          posId: pos.id,
-          posType: pos.type,
-          strike: pos.strike,
-          delta: pos.delta,
-          pnl: pos.pnl,
-          pctProfit: pct.toFixed(0),
-          ...triggered,
-        });
-        results.alertsDispatched++;
-      }
+      const alertStateKey = `position:${alert.alertKey}`;
+      const shouldSend = await claimAlert(alertStateKey, 8 * 60 * 60);
+      if (!shouldSend) continue;
+      await sendTelegramMessage("warning", {
+        posId: pos.id,
+        posType: pos.type,
+        strike: pos.strike,
+        delta: pos.delta,
+        pnl: pos.pnl,
+        pctProfit: pct.toFixed(0),
+        warningReason: alert.reason,
+        alertLevel: alert.alertLevel,
+        tacticalAction: alert.tacticalAction,
+      });
+      results.alertsDispatched++;
     }
 
     // 5. Daily Briefing Trigger (if requested or at 08:00 UTC / 15:00 UTC)

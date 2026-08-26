@@ -8,6 +8,8 @@ import { requireAppAuth, requireCronAuth } from "../lib/security.js";
 import { calculateEMA, calculateRealizedVol, buildMarketIndicators } from "../lib/marketIndicators.js";
 import { classifyMarketRegime, stabilizeMarketRegime } from "../src/services/marketRegime.js";
 import { scanEntryOpportunities } from "../src/services/scanner.js";
+import { checkAlerts, DEFAULT_ALERT_PREFERENCES } from "../src/services/alerts.js";
+import { sendTelegramMessage } from "../api/cron.js";
 
 test("normalizes scanner premium per BTC and calculates strangle breakevens", () => {
   const setup = normalizePayoffSetup({
@@ -187,4 +189,53 @@ test("scanner produces no entry opportunities in a no-trade regime", () => {
   const noTradeRegime = classifyMarketRegime({ price: 100_000 });
   const results = scanEntryOpportunities(marks, 100_000, 60, [], { regime: noTradeRegime });
   assert.deepEqual(results, []);
+});
+
+test("position alerts use the configured 45 percent take-profit target", () => {
+  const alerts = checkAlerts([{
+    id: "BTC-300101-90000-P",
+    type: "Short Put",
+    premium: 100,
+    currentPrice: 55,
+    pnl: 45,
+    dte: 10,
+    delta: -0.2,
+  }], new Set(), DEFAULT_ALERT_PREFERENCES);
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0].alertLevel, "TAKE_PROFIT");
+  assert.match(alerts[0].reason, />= 45%/);
+});
+
+test("server cron formats and sends entry signals to Telegram", async () => {
+  const previousFetch = global.fetch;
+  const previousToken = process.env.TELEGRAM_BOT_TOKEN;
+  const previousChat = process.env.TELEGRAM_CHAT_ID;
+  let sentPayload = null;
+  process.env.TELEGRAM_BOT_TOKEN = "test-token";
+  process.env.TELEGRAM_CHAT_ID = "123";
+  global.fetch = async (_url, options) => {
+    sentPayload = JSON.parse(options.body);
+    return { ok: true, status: 200, json: async () => ({ ok: true }) };
+  };
+  try {
+    const result = await sendTelegramMessage("short_put_signal", {
+      expiry: "2030-01-01",
+      dte: 14,
+      btcPrice: 100_000,
+      marketIv: 60,
+      putStrike: 90_000,
+      putDelta: "-0.20",
+      totalPremium: 1_000,
+      totalTheta: 30,
+      putDistancePct: "10.0",
+      breakevenLow: 89_000,
+    });
+    assert.equal(result.ok, true);
+    assert.match(sentPayload.text, /ENTRY SIGNAL/);
+    assert.equal(sentPayload.chat_id, "123");
+  } finally {
+    global.fetch = previousFetch;
+    if (previousToken == null) delete process.env.TELEGRAM_BOT_TOKEN; else process.env.TELEGRAM_BOT_TOKEN = previousToken;
+    if (previousChat == null) delete process.env.TELEGRAM_CHAT_ID; else process.env.TELEGRAM_CHAT_ID = previousChat;
+  }
 });

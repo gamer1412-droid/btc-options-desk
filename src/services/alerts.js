@@ -11,7 +11,7 @@ export const DEFAULT_ALERT_PREFERENCES = {
   enabled: true,
   criticalDefense: true, // Stop Loss (2x), Delta >= 0.65, DTE <= 2
   warningDefense: true,  // Delta >= 0.35, Delta >= 0.50
-  takeProfit: true,      // Profit >= 50%
+  takeProfit: true,      // Profit reaches the configured main TP target
   entrySignals: true,    // High quality entry scanner signals
   dailyBriefing: true,   // Daily portfolio briefing digest
 };
@@ -141,16 +141,16 @@ export function checkAlerts(positions, alertedIds, prefs = DEFAULT_ALERT_PREFERE
       }
     }
 
-    // 3. Take Profit 50% — TP Target
-    const tpKey = `${pos.id}::TP_50`;
+    // 3. Main Take Profit — use the central strategy configuration
+    const tpKey = `${pos.id}::TP_${cfg.exit.mainTpPct}`;
     if (prefs.takeProfit && pct >= cfg.exit.mainTpPct) {
       if (!alertedIds.has(tpKey)) {
         newAlerts.push({
           pos,
           alertKey: tpKey,
           alertLevel: "TAKE_PROFIT",
-          tacticalAction: "ปิดทำกำไร 50% ตามระบบเพื่อเคลียร์ Margin ไปเปิดรอบใหม่",
-          reason: `🎯 TAKE PROFIT: กำไร ${pct.toFixed(0)}% (>= 50%) — ปิดทำกำไรตามแผน`,
+          tacticalAction: `ปิดทำกำไรเมื่อถึง ${cfg.exit.mainTpPct}% ตามระบบเพื่อเคลียร์ Margin ไปเปิดรอบใหม่`,
+          reason: `🎯 TAKE PROFIT: กำไร ${pct.toFixed(0)}% (>= ${cfg.exit.mainTpPct}%) — ปิดทำกำไรตามแผน`,
         });
         continue;
       }
