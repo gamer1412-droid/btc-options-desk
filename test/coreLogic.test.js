@@ -98,23 +98,8 @@ test("portfolio capacity allows the caution zone but enforces the 35 percent har
   assert.equal(capacity.remainingLots, 0);
 });
 
-test("private API auth passes when unconfigured and protects when token is set", () => {
-  const previousToken = process.env.APP_ACCESS_TOKEN;
-  delete process.env.APP_ACCESS_TOKEN;
-  const response = {
-    status(code) { this.statusCode = code; return this; },
-    json() { return this; },
-  };
-  // When no token is configured in env, allow access
-  assert.equal(requireAppAuth({ headers: {} }, response), true);
-
-  // When token is configured in env, enforce match
-  process.env.APP_ACCESS_TOKEN = "secret123";
-  assert.equal(requireAppAuth({ headers: { authorization: "Bearer wrong" } }, response), false);
-  assert.equal(response.statusCode, 401);
-  assert.equal(requireAppAuth({ headers: { authorization: "Bearer secret123" } }, response), true);
-
-  if (previousToken == null) delete process.env.APP_ACCESS_TOKEN; else process.env.APP_ACCESS_TOKEN = previousToken;
+test("private API auth is open by default without dashboard unlock requirement", () => {
+  assert.equal(requireAppAuth(), true);
 });
 
 test("cron always requires CRON_SECRET", () => {

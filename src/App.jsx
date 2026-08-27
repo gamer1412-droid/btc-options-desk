@@ -18,7 +18,6 @@ import { parseAccountInfo, calculatePortfolioCapacity } from "./services/sizing.
 import { loadPaperTrades } from "./services/paperTrading.js";
 import { SoundFX } from "./services/soundFx.js";
 import { RISK_PROFILES } from "./config/strategyConfig.js";
-import { getApiAuthHeaders, saveApiAccessToken } from "./services/apiClient.js";
 import { classifyMarketRegime, stabilizeMarketRegime } from "./services/marketRegime.js";
 
 import { MetricCard } from "./components/MetricCard.jsx";
@@ -445,21 +444,6 @@ export default function App() {
           <div style={{ color: T.textSecondary, marginTop: 6, fontSize: 11 }}>
             ตรวจสอบว่าตั้งค่า BINANCE_API_KEY / BINANCE_API_SECRET ใน Vercel Environment Variables แล้ว และ API Key เปิดสิทธิ์ "Enable Reading"
           </div>
-          {(connError.includes("AUTH_REQUIRED") || connError.includes("Access Token")) && (
-            <button
-              onClick={() => {
-                const token = window.prompt("กรอก APP_ACCESS_TOKEN สำหรับ Dashboard นี้");
-                if (token) {
-                  saveApiAccessToken(token);
-                  setDataStatus("loading");
-                  fetchLiveData();
-                }
-              }}
-              style={{ marginTop: 10, background: T.greenDim, color: T.green, border: `1px solid ${T.greenMid}`, borderRadius: 6, padding: "6px 12px", cursor: "pointer", fontWeight: 700 }}
-            >
-              🔐 ปลดล็อก Dashboard
-            </button>
-          )}
         </div>
       )}
 

@@ -10,7 +10,7 @@
 //    TELEGRAM_CHAT_ID   = 123456789
 //    APP_URL            = https://your-desk-url.vercel.app (Optional)
 
-import { requireAppAuth, enforceRateLimit } from "../lib/security.js";
+import { enforceRateLimit } from "../lib/security.js";
 
 export default async function handler(req, res) {
   const allowedOrigin = process.env.ALLOWED_ORIGIN ?? "*";
@@ -19,7 +19,6 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST" });
-  if (!requireAppAuth(req, res)) return;
   if (!enforceRateLimit(req, res, { key: "telegram", limit: 12, windowMs: 60_000 })) return;
 
   const botToken = process.env.TELEGRAM_BOT_TOKEN;

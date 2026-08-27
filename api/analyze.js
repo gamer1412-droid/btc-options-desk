@@ -4,7 +4,7 @@
 //   GROQ_API_KEY = your Groq API key from https://console.groq.com/keys
 //   (Optional) ANTHROPIC_API_KEY = your Claude key from https://console.anthropic.com
 
-import { requireAppAuth, enforceRateLimit } from "../lib/security.js";
+import { enforceRateLimit } from "../lib/security.js";
 
 export default async function handler(req, res) {
   const allowedOrigin = process.env.ALLOWED_ORIGIN ?? "*";
@@ -13,7 +13,6 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST" });
-  if (!requireAppAuth(req, res)) return;
   if (!enforceRateLimit(req, res, { key: "analyze", limit: 10, windowMs: 60_000 })) return;
 
   const groqApiKey = process.env.GROQ_API_KEY;
