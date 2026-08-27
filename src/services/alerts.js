@@ -156,7 +156,7 @@ export function checkAlerts(positions, alertedIds, prefs = DEFAULT_ALERT_PREFERE
     }
 
     // 4. Delta Defense Action Level (>= 0.65) — Critical Action
-    const delta65Key = `${pos.id}::DELTA_65`;
+    const delta65Key = `${pos.id}::DELTA_${cfg.defense.actionDelta}`;
     if (prefs.criticalDefense && absDelta >= cfg.defense.actionDelta) {
       if (!alertedIds.has(delta65Key)) {
         newAlerts.push({
@@ -164,37 +164,37 @@ export function checkAlerts(positions, alertedIds, prefs = DEFAULT_ALERT_PREFERE
           alertKey: delta65Key,
           alertLevel: "CRITICAL",
           tacticalAction: "ปิดทำกำไรขาที่ปลอดภัย และ Roll ขาที่ถูกทดสอบออกไป หรือปิดทั้งคู่",
-          reason: `🚨 ACTION REQUIRED: Delta ${pos.delta.toFixed(2)} >= 0.65 — ต้อง Close หรือ Roll 1 ครั้ง`,
+          reason: `🚨 ACTION REQUIRED: Delta ${pos.delta.toFixed(2)} >= ${cfg.defense.actionDelta} — ต้อง Close หรือ Roll 1 ครั้ง`,
         });
         continue;
       }
     }
 
-    // 5. Delta Defense Mode (>= 0.50) — Warning Mode
-    const delta50Key = `${pos.id}::DELTA_50`;
+    // 5. Delta Defense Mode (>= 0.52) — Warning Mode
+    const delta52Key = `${pos.id}::DELTA_${cfg.defense.strongWarningDelta}`;
     if (prefs.warningDefense && absDelta >= cfg.defense.strongWarningDelta) {
-      if (!alertedIds.has(delta50Key)) {
+      if (!alertedIds.has(delta52Key)) {
         newAlerts.push({
           pos,
-          alertKey: delta50Key,
+          alertKey: delta52Key,
           alertLevel: "WARNING",
           tacticalAction: "เตรียมตั้ง Limit Order ปิด หรือเตรียม Roll ขาตรงข้ามเข้ามาชดเชย",
-          reason: `⚠️ DEFENSIVE MODE: Delta ${pos.delta.toFixed(2)} >= 0.50 — เตรียม Close / Roll`,
+          reason: `⚠️ DEFENSIVE MODE: Delta ${pos.delta.toFixed(2)} >= ${cfg.defense.strongWarningDelta} — เตรียม Close / Roll`,
         });
         continue;
       }
     }
 
-    // 6. Delta Warning (>= 0.35) — Early Review
-    const delta35Key = `${pos.id}::DELTA_35`;
+    // 6. Delta Warning (>= 0.38) — Early Review
+    const delta38Key = `${pos.id}::DELTA_${cfg.defense.warningDelta}`;
     if (prefs.warningDefense && absDelta >= cfg.defense.warningDelta) {
-      if (!alertedIds.has(delta35Key)) {
+      if (!alertedIds.has(delta38Key)) {
         newAlerts.push({
           pos,
-          alertKey: delta35Key,
+          alertKey: delta38Key,
           alertLevel: "REVIEW",
           tacticalAction: "เฝ้าระวังและติดตามระดับราคา BTC ต่อเนื่อง",
-          reason: `⚠️ DEFENSIVE REVIEW: Delta ${pos.delta.toFixed(2)} >= 0.35 — เริ่มเฝ้าระวัง`,
+          reason: `⚠️ DEFENSIVE REVIEW: Delta ${pos.delta.toFixed(2)} >= ${cfg.defense.warningDelta} — เริ่มเฝ้าระวัง`,
         });
         continue;
       }
@@ -202,6 +202,90 @@ export function checkAlerts(positions, alertedIds, prefs = DEFAULT_ALERT_PREFERE
   }
 
   return newAlerts;
+}
+
+// ─── Portfolio-Level Risk Alerts ─────────────────────────────────────────────
+export function checkPortfolioAlerts(positions, accountInfo, alertedIds, prefs = DEFAULT_ALERT_PREFERENCES) {
+  const cfg = STRATEGY_CONFIG;
+  const portfolioAlerts = [];
+  if (!prefs.enabled) return portfolioAlerts;
+
+  // 1. Margin Risk Alerts
+  if (accountInfo && prefs.criticalDefense) {
+    const marginPct = Number(accountInfo.marginPct || 0);
+    const hardMarginKey = `portfolio::MARGIN_HARD_MAX`;
+    const cautionMarginKey = `portfolio::MARGIN_CAUTION`;
+
+    if (marginPct >= cfg.sizing.maxTotalMarginPct) {
+      if (!alertedIds.has(hardMarginKey)) {
+        portfolioAlerts.push({
+          alertKey: hardMarginKey,
+          alertLevel: "CRITICAL",
+          tacticalAction: "ห้ามเปิดสัญญาเพิ่มเด็ดขาด และพิจารณาปิดสัญญาที่ได้กำไรเพื่อลด Margin",
+          reason: `🚨 MARGIN CEILING BREACH: Margin Used ${marginPct.toFixed(1)}% >= ${cfg.sizing.maxTotalMarginPct}% Hard Ceiling`,
+          posType: "PORTFOLIO",
+          posId: "MARGIN_MAX",
+          delta: 0,
+          pnl: 0,
+          pctProfit: 0,
+        });
+      }
+    } else if (marginPct >= cfg.sizing.cautionMarginPct && prefs.warningDefense) {
+      if (!alertedIds.has(cautionMarginKey)) {
+        portfolioAlerts.push({
+          alertKey: cautionMarginKey,
+          alertLevel: "WARNING",
+          tacticalAction: "ลดขนาด Position ลง 50% สำหรับสัญญาถัดไป",
+          reason: `⚠️ MARGIN CAUTION ZONE: Margin Used ${marginPct.toFixed(1)}% >= ${cfg.sizing.cautionMarginPct}% — เข้าสู่โซนเฝ้าระวัง`,
+          posType: "PORTFOLIO",
+          posId: "MARGIN_CAUTION",
+          delta: 0,
+          pnl: 0,
+          pctProfit: 0,
+        });
+      }
+    }
+  }
+
+  // 2. Net Portfolio Delta Imbalance
+  if (Array.isArray(positions) && positions.length > 0 && prefs.warningDefense) {
+    const netDelta = positions.reduce((s, p) => s + (p.positionDelta ?? ((p.delta || 0) * (p.size || 1))), 0);
+    const absNetDelta = Math.abs(netDelta);
+    const deltaHardKey = `portfolio::NET_DELTA_HARD`;
+    const deltaWarnKey = `portfolio::NET_DELTA_WARN`;
+
+    if (absNetDelta >= cfg.portfolioDelta.hardLimit && prefs.criticalDefense) {
+      if (!alertedIds.has(deltaHardKey)) {
+        portfolioAlerts.push({
+          alertKey: deltaHardKey,
+          alertLevel: "CRITICAL",
+          tacticalAction: "พอร์ตเอียงทิศทางมากเกินไป แนะนำ Roll ปรับ Strike ขาตรงข้ามเพื่อคืนสมดุล Delta Neutral",
+          reason: `🚨 NET DELTA IMBALANCE: Net Delta ${netDelta > 0 ? "+" : ""}${netDelta.toFixed(2)} เกินขีดจำกัด ${cfg.portfolioDelta.hardLimit}`,
+          posType: "PORTFOLIO",
+          posId: "NET_DELTA",
+          delta: netDelta.toFixed(2),
+          pnl: 0,
+          pctProfit: 0,
+        });
+      }
+    } else if (absNetDelta >= cfg.portfolioDelta.warningThreshold) {
+      if (!alertedIds.has(deltaWarnKey)) {
+        portfolioAlerts.push({
+          alertKey: deltaWarnKey,
+          alertLevel: "WARNING",
+          tacticalAction: "จับตาดูทิศทางราคา BTC และพิจารณาปรับสมดุลพอร์ต",
+          reason: `⚠️ NET DELTA WARNING: Net Delta ${netDelta > 0 ? "+" : ""}${netDelta.toFixed(2)} เริ่มเอียงทิศทาง (>= ${cfg.portfolioDelta.warningThreshold})`,
+          posType: "PORTFOLIO",
+          posId: "NET_DELTA",
+          delta: netDelta.toFixed(2),
+          pnl: 0,
+          pctProfit: 0,
+        });
+      }
+    }
+  }
+
+  return portfolioAlerts;
 }
 
 // ─── Entry Signal Criteria v2.5 ──────────────────────────────────────────────

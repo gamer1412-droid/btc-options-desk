@@ -5,6 +5,7 @@ import { mapBinancePosition } from "./services/binance.js";
 import {
   sendTelegram,
   checkAlerts,
+  checkPortfolioAlerts,
   checkEntryAlerts,
   getPersistedAlerts,
   savePersistedAlert,
@@ -195,6 +196,24 @@ export default function App() {
               warningReason: alert.reason,
               alertLevel: alert.alertLevel,
               tacticalAction: alert.tacticalAction,
+            });
+          }
+
+          // Portfolio-level risk alerts (Margin ceiling & Net delta)
+          const portAlerts = checkPortfolioAlerts(mappedPositions, parsedAccount || accountInfo, alertedIdsRef.current, alertPrefs);
+          for (const pAlert of portAlerts) {
+            alertedIdsRef.current.add(pAlert.alertKey);
+            savePersistedAlert(pAlert.alertKey, ALERT_STORAGE_KEY);
+            sendTelegram("warning", {
+              posId: pAlert.posId,
+              posType: pAlert.posType,
+              strike: pAlert.posId,
+              delta: pAlert.delta,
+              pnl: pAlert.pnl,
+              pctProfit: pAlert.pctProfit,
+              warningReason: pAlert.reason,
+              alertLevel: pAlert.alertLevel,
+              tacticalAction: pAlert.tacticalAction,
             });
           }
         }

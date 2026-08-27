@@ -8,7 +8,7 @@ import { buildMarketIndicators } from "../lib/marketIndicators.js";
 import { classifyMarketRegime } from "../src/services/marketRegime.js";
 import { scanEntryOpportunities, determineOptimalMarketProfile } from "../src/services/scanner.js";
 import { evaluateEntryRules } from "../src/services/rulesEngine.js";
-import { checkAlerts, DEFAULT_ALERT_PREFERENCES } from "../src/services/alerts.js";
+import { checkAlerts, checkPortfolioAlerts, DEFAULT_ALERT_PREFERENCES } from "../src/services/alerts.js";
 import { parseAccountInfo } from "../src/services/sizing.js";
 
 const BINANCE_OPTIONS_BASE = "https://eapi.binance.com";
@@ -330,7 +330,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // 4. Evaluate Positions for Critical Risk / Take Profit
+    // 4. Evaluate Positions & Portfolio for Critical Risk / Take Profit
     const serverPositionAlerts = alertsEnabled
       ? checkAlerts(positions, new Set(), DEFAULT_ALERT_PREFERENCES)
       : [];
@@ -350,6 +350,28 @@ export default async function handler(req, res) {
         warningReason: alert.reason,
         alertLevel: alert.alertLevel,
         tacticalAction: alert.tacticalAction,
+      });
+      results.alertsDispatched++;
+    }
+
+    // Portfolio-level risk alerts (Margin ceiling & Net delta)
+    const serverPortfolioAlerts = alertsEnabled
+      ? checkPortfolioAlerts(positions, accountInfo, new Set(), DEFAULT_ALERT_PREFERENCES)
+      : [];
+    for (const pAlert of serverPortfolioAlerts) {
+      const alertStateKey = `portfolio:${pAlert.alertKey}`;
+      const shouldSend = await claimAlert(alertStateKey, 8 * 60 * 60);
+      if (!shouldSend) continue;
+      await sendTelegramMessage("warning", {
+        posId: pAlert.posId,
+        posType: pAlert.posType,
+        strike: pAlert.posId,
+        delta: pAlert.delta,
+        pnl: pAlert.pnl,
+        pctProfit: pAlert.pctProfit,
+        warningReason: pAlert.reason,
+        alertLevel: pAlert.alertLevel,
+        tacticalAction: pAlert.tacticalAction,
       });
       results.alertsDispatched++;
     }
