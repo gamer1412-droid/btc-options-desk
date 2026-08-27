@@ -20,6 +20,7 @@ export function AlertSettingsModal({
   const [prefs, setPrefs] = useState(() => getAlertPreferences());
   const [testStatus, setTestStatus] = useState(null); // "loading" | "ok" | "error" | null
   const [briefingStatus, setBriefingStatus] = useState(null); // "loading" | "ok" | "error" | null
+  const [actionError, setActionError] = useState(null);
   const [resetSuccess, setResetSuccess] = useState(false);
 
   if (!isOpen) return null;
@@ -35,30 +36,36 @@ export function AlertSettingsModal({
   const handleTestAlert = async () => {
     SoundFX.playClick();
     setTestStatus("loading");
+    setActionError(null);
     const res = await sendTelegram("test");
     if (res && res.ok) {
       SoundFX.playSuccessChime();
       setTestStatus("ok");
+      setActionError(null);
     } else {
       SoundFX.playWarningAlert();
       setTestStatus("error");
+      setActionError(res?.error || "ไม่สามารถส่งข้อความได้ กรุณาตรวจสอบการเชื่อมต่อ");
     }
-    setTimeout(() => setTestStatus(null), 3500);
+    setTimeout(() => setTestStatus(null), 4000);
   };
 
   const handleSendBriefing = async () => {
     SoundFX.playClick();
     setBriefingStatus("loading");
+    setActionError(null);
     const briefingData = buildDailyBriefingData(positions, marketContext, accountInfo);
     const res = await sendTelegram("daily_briefing", briefingData);
     if (res && res.ok) {
       SoundFX.playSuccessChime();
       setBriefingStatus("ok");
+      setActionError(null);
     } else {
       SoundFX.playWarningAlert();
       setBriefingStatus("error");
+      setActionError(res?.error || "ไม่สามารถส่ง Daily Briefing ได้");
     }
-    setTimeout(() => setBriefingStatus(null), 3500);
+    setTimeout(() => setBriefingStatus(null), 4000);
   };
 
   const handleResetCooldowns = () => {
@@ -350,6 +357,33 @@ export function AlertSettingsModal({
               <span>{briefingStatus === "loading" ? "กำลังสรุป..." : briefingStatus === "ok" ? "✓ ส่งสรุปแล้ว!" : briefingStatus === "error" ? "✗ ล้มเหลว" : "ส่ง Daily Briefing เดี๋ยวนี้"}</span>
             </button>
           </div>
+
+          {actionError && (
+            <div style={{
+              background: T.redDim,
+              border: `1px solid ${T.red}66`,
+              borderRadius: 8,
+              padding: "10px 14px",
+              marginBottom: 12,
+              color: T.red,
+              fontSize: 12,
+              fontFamily: T.fontSans,
+              lineHeight: 1.4,
+            }}>
+              <div style={{ fontWeight: 700, marginBottom: 2 }}>⚠️ แจ้งเตือนล้มเหลว:</div>
+              <div>{actionError}</div>
+              {actionError.includes("Missing TELEGRAM_BOT_TOKEN") && (
+                <div style={{ color: T.textSecondary, marginTop: 4, fontSize: 11 }}>
+                  💡 <strong>วิธีแก้ไข:</strong> เข้าไปที่ Vercel Dashboard → Project Settings → Environment Variables แล้วเพิ่ม <code>TELEGRAM_BOT_TOKEN</code> และ <code>TELEGRAM_CHAT_ID</code> จากนั้นกด Redeploy ครับ
+                </div>
+              )}
+              {actionError.includes("chat not found") && (
+                <div style={{ color: T.textSecondary, marginTop: 4, fontSize: 11 }}>
+                  💡 <strong>วิธีแก้ไข:</strong> กรุณาเปิด Telegram แล้วค้นหาชื่อบอทของคุณ จากนั้นกดปุ่ม <code>/start</code> หรือพิมพ์ทักบอท 1 ครั้ง แล้วตรวจสอบว่า <code>TELEGRAM_CHAT_ID</code> ถูกต้อง
+                </div>
+              )}
+            </div>
+          )}
 
           <button
             onClick={handleResetCooldowns}

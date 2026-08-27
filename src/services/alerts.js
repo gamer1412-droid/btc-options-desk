@@ -89,9 +89,9 @@ export async function sendTelegram(type, data = {}) {
       headers: { "Content-Type": "application/json", ...getApiAuthHeaders() },
       body: JSON.stringify({ type, data }),
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || data?.error) throw new Error(data?.error || `Telegram HTTP ${res.status}`);
-    return data;
+    const jsonResult = await res.json().catch(() => ({}));
+    if (!res.ok || jsonResult?.error) throw new Error(jsonResult?.error || `Telegram HTTP ${res.status}`);
+    return jsonResult;
   } catch (e) {
     console.error("Telegram error:", e.message);
     return { error: e.message };
