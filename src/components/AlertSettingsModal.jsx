@@ -410,9 +410,67 @@ export function AlertSettingsModal({
           </button>
         </div>
 
-        {/* Tip info */}
+        {/* 24/7 Cloud Background Monitoring Section */}
         <div style={{
           marginTop: 18,
+          background: `linear-gradient(135deg, ${T.bg2}, ${T.bg3})`,
+          borderRadius: 10,
+          padding: "14px 16px",
+          border: `1px solid ${T.blue}44`,
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 16 }}>☁️</span>
+              <span style={{ color: T.blue, fontWeight: 800, fontSize: 12, letterSpacing: 0.5, fontFamily: T.fontSans }}>
+                24/7 CLOUD BACKGROUND WORKER
+              </span>
+            </div>
+            <span style={{
+              background: T.greenDim, color: T.green, border: `1px solid ${T.greenMid}`,
+              padding: "2px 8px", borderRadius: 12, fontSize: 10, fontWeight: 700, fontFamily: T.fontSans,
+            }}>
+              ● SERVERLESS READY
+            </span>
+          </div>
+
+          <div style={{ color: T.textSecondary, fontSize: 11, fontFamily: T.fontSans, lineHeight: 1.5, marginBottom: 10 }}>
+            ระบบมี Worker ทำงานบน Cloud อัตโนมัติ คอยเฝ้าพอร์ต สแกนสัญญาระดับ A+ และยิงแจ้งเตือนเข้า Telegram แม้ปิดหน้าเว็บ
+          </div>
+
+          <div style={{
+            display: "flex", alignItems: "center", gap: 8, background: T.bg0,
+            padding: "8px 12px", borderRadius: 6, border: `1px solid ${T.border}`, marginBottom: 10,
+          }}>
+            <code style={{ fontSize: 11, color: T.green, flex: 1, overflowX: "auto", whiteSpace: "nowrap" }}>
+              {typeof window !== "undefined" ? `${window.location.origin}/api/cron` : "https://btc-options-desk.vercel.app/api/cron"}
+            </code>
+            <button
+              onClick={() => {
+                SoundFX.playClick();
+                const url = typeof window !== "undefined" ? `${window.location.origin}/api/cron` : "https://btc-options-desk.vercel.app/api/cron";
+                navigator.clipboard.writeText(url);
+                setResetSuccess(true);
+                setTimeout(() => setResetSuccess(false), 2000);
+              }}
+              style={{
+                background: T.bg2, border: `1px solid ${T.border}`, color: T.textPrimary,
+                borderRadius: 4, padding: "4px 8px", fontSize: 10, cursor: "pointer", fontWeight: 700,
+              }}
+            >
+              📋 คัดลอก URL
+            </button>
+          </div>
+
+          <div style={{
+            fontSize: 10.5, color: T.textMuted, lineHeight: 1.5, fontFamily: T.fontSans,
+          }}>
+            💡 <strong>ตั้งตรวจทุก 5 นาทีฟรี:</strong> นำ URL ด้านบนไปใส่ใน <a href="https://cron-job.org" target="_blank" rel="noreferrer" style={{ color: T.cyan, textDecoration: "underline" }}>cron-job.org</a> หรือ UptimeRobot ให้ยิง GET ทุก 5 นาที ระบบจะตรวจพอร์ตและยิงเข้า Telegram ให้ตลอด 24 ชั่วโมง 100% ฟรีครับ!
+          </div>
+        </div>
+
+        {/* Tip info */}
+        <div style={{
+          marginTop: 14,
           background: T.bg2,
           borderRadius: 8,
           padding: "10px 14px",
@@ -422,7 +480,7 @@ export function AlertSettingsModal({
           lineHeight: 1.5,
           fontFamily: T.fontSans,
         }}>
-          💡 <strong>Tip:</strong> ระบบมี <strong>State-Aware Escalation</strong> ในตัว — สัญญาที่เตือน Delta 0.35 จะไม่บล็อกสัญญาณ Delta 0.65 หรือ Stop Loss และ Vercel Cron จะคอยสแกนตรวจสอบทุก 10 นาทีตลอด 24 ชม.
+          💡 <strong>Tip:</strong> ระบบมี <strong>State-Aware Escalation</strong> ในตัว — สัญญาที่เตือน Delta 0.38 จะไม่บล็อกสัญญาณ Delta 0.65 หรือ Stop Loss 2× Premium
         </div>
       </div>
     </div>
