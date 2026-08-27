@@ -88,18 +88,17 @@ export default function App() {
   const fetchLiveData = useCallback(async () => {
     try {
       const [marketData, posData, marksData, acctData] = await Promise.all([
-        fetch("/api/binance?action=btcMarketContext", { headers: getApiAuthHeaders() })
+        fetch("/api/binance?action=btcMarketContext")
           .then(res => readApiJson(res, "Market Context"))
-          .catch(() => fetch("/api/binance?action=btcPrice", { headers: getApiAuthHeaders() }).then(res => readApiJson(res, "BTC Price"))),
-        // Private endpoints are optional: keep public market data flowing when
-        // APP_ACCESS_TOKEN or Binance account credentials are not configured.
-        fetch("/api/binance?action=optionPositions", { headers: getApiAuthHeaders() })
+          .catch(() => fetch("/api/binance?action=btcPrice").then(res => readApiJson(res, "BTC Price"))),
+        // Private endpoints: fetch Binance user positions and account
+        fetch("/api/binance?action=optionPositions")
           .then(res => readApiJson(res, "Options Positions"))
           .catch(error => ({ error: error.message || "Options Positions unavailable" })),
-        fetch("/api/binance?action=optionMarks", { headers: getApiAuthHeaders() })
+        fetch("/api/binance?action=optionMarks")
           .then(res => readApiJson(res, "Options Market"))
           .catch(error => ({ error: error.message || "Options Market unavailable" })),
-        fetch("/api/binance?action=optionAccount", { headers: getApiAuthHeaders() })
+        fetch("/api/binance?action=optionAccount")
           .then(res => readApiJson(res, "Options Account"))
           .catch(() => null),
       ]);

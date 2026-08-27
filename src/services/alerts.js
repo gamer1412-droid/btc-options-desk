@@ -1,6 +1,5 @@
 import { STRATEGY_CONFIG } from "../config/strategyConfig.js";
 import { evaluateEntryRules } from "./rulesEngine.js";
-import { getApiAuthHeaders } from "./apiClient.js";
 
 const ALERT_STORAGE_KEY = "btc_options_desk_alerted_positions_v2";
 const ENTRY_STORAGE_KEY = "btc_options_desk_alerted_entries_v2";
@@ -86,7 +85,7 @@ export async function sendTelegram(type, data = {}) {
   try {
     const res = await fetch("/api/telegram", {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...getApiAuthHeaders() },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ type, data }),
     });
     const jsonResult = await res.json().catch(() => ({}));

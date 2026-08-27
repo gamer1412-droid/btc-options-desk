@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { T } from "../tokens.js";
 import { fmtUSD, renderAnalysisHtml } from "../utils.js";
 import { Pill } from "./Pill.jsx";
-import { getApiAuthHeaders } from "../services/apiClient.js";
 
 export function AnalysisPanel({ pos, btcPrice, marketIv, onClose }) {
   const [analysisHtml, setAnalysisHtml] = useState("");
@@ -93,7 +92,7 @@ Respond in Thai language. Format your response as:
     try {
       const response = await fetch("/api/analyze", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...getApiAuthHeaders() },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt }),
       });
       const data = await response.json();
