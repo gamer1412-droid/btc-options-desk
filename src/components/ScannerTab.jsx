@@ -588,19 +588,10 @@ export function ScannerTab({
                     </div>
                   </div>
 
-                  <div>
-                    <div style={{ color: T.textSecondary, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>THETA DECAY</div>
-                    <div style={{ color: T.green, fontFamily: T.font, fontSize: 15, fontWeight: 700 }}>
-                      +${opp.totalTheta} <span style={{ fontSize: 10, color: T.textSecondary, fontWeight: 400 }}>/ วัน</span>
-                    </div>
-                  </div>
-
                   <div style={{ textAlign: "right" }}>
-                    <div style={{ color: T.textSecondary, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>
-                      EST. ANNUAL YIELD
-                    </div>
-                    <div style={{ color: apy >= 65 ? T.amber : T.green, fontFamily: T.font, fontSize: 15, fontWeight: 800 }}>
-                      ~{apy}% annualized ROM*
+                    <div style={{ color: T.textSecondary, fontSize: 9, letterSpacing: 1, fontFamily: T.fontSans }}>THETA DECAY</div>
+                    <div style={{ color: T.green, fontFamily: T.font, fontSize: 16, fontWeight: 800 }}>
+                      +${opp.totalTheta} <span style={{ fontSize: 10, color: T.textSecondary, fontWeight: 400 }}>/ วัน</span>
                     </div>
                   </div>
                 </div>
