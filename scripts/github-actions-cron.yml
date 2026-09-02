@@ -1,0 +1,26 @@
+name: BTC Options Desk — Hourly Telegram Alerts
+on:
+  schedule:
+    - cron: "0 * * * *"  # ทุกชั่วโมง (UTC) — ยิงแม้ปิดเว็บ ไม่ต้องจ่าย Vercel Pro
+  workflow_dispatch:     # กด Run เองได้จาก GitHub Actions tab
+
+jobs:
+  ping-cron:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Trigger /api/cron
+        run: |
+          echo "⏰ Triggering BTC Options Desk cron at $(date -u)"
+          HTTP_CODE=$(curl -s -o /tmp/resp.json -w "%{http_code}" \
+            -X GET \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "https://btc-options-desk.vercel.app/api/cron")
+          echo "HTTP $HTTP_CODE"
+          cat /tmp/resp.json 2>/dev/null | head -c 2000
+          echo ""
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "❌ Cron failed with $HTTP_CODE"
+            exit 1
+          fi
+          echo "✅ Cron succeeded"

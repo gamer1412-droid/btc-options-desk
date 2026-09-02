@@ -1,5 +1,6 @@
 import { STRATEGY_CONFIG, RISK_PROFILES } from "../config/strategyConfig.js";
 import { classifyMarketRegime, MARKET_REGIMES } from "./marketRegime.js";
+import { getIvRank, getIvPercentile, getHistoryStats } from "./ivHistory.js";
 
 // ─── Dynamic Market Regime & Optimal Profile Selector ─────────────────────────
 export function determineOptimalMarketProfile(marketContext = {}, accountInfo = null, currentPositions = []) {
@@ -79,6 +80,30 @@ export function scanEntryOpportunities(
   const regime = marketContext.regime?.regime ? marketContext.regime : classifyMarketRegime({ ...marketContext, marketIv });
   if (regime.isNoTrade) return [];
 
+  // ── Resolve real IV Rank / Percentile from rolling 90-day history ──────────
+  // marketIv may come from caller or marketContext; prefer explicit marketIv.
+  const resolvedMarketIv = marketIv ?? marketContext.marketIv ?? marketContext.ivRank != null ? marketIv : marketContext.marketIv;
+  const effectiveMarketIv = Number.isFinite(Number(marketIv)) ? Number(marketIv) : (Number.isFinite(Number(marketContext.marketIv)) ? Number(marketContext.marketIv) : null);
+  let realIvRank = null;
+  let realIvPercentile = null;
+  let ivHistoryStats = null;
+  try {
+    ivHistoryStats = getHistoryStats();
+    if (effectiveMarketIv != null) {
+      realIvRank = getIvRank(effectiveMarketIv);
+      realIvPercentile = getIvPercentile(effectiveMarketIv);
+    }
+    // Also allow marketContext already carrying rank (from App.jsx)
+    if (realIvRank == null && marketContext.ivRank != null && Number.isFinite(Number(marketContext.ivRank))) {
+      realIvRank = Number(marketContext.ivRank);
+    }
+    if (realIvPercentile == null && marketContext.ivPercentile != null && Number.isFinite(Number(marketContext.ivPercentile))) {
+      realIvPercentile = Number(marketContext.ivPercentile);
+    }
+  } catch {}
+
+  // If no history (<7 days) realIvRank will be null → rulesEngine will BLOCK
+
   // If no profile key is provided or passed dynamically, auto-determine the best profile
   let activeProfileKey = selectedProfileKey;
   if (!activeProfileKey || !RISK_PROFILES[activeProfileKey]) {
@@ -135,6 +160,28 @@ export function scanEntryOpportunities(
 
     if (markPrice <= 0) continue;
 
+    // ── Liquidity fields (gracefully handle missing data) ──────────────
+    const bidPrice = m.bidPrice != null ? Number(m.bidPrice) : (m.bid_price != null ? Number(m.bid_price) : null);
+    const askPrice = m.askPrice != null ? Number(m.askPrice) : (m.ask_price != null ? Number(m.ask_price) : null);
+    const bidIvRaw = m.bidIv != null ? Number(m.bidIv) : (m.bid_iv != null ? Number(m.bid_iv) : null);
+    const askIvRaw = m.askIv != null ? Number(m.askIv) : (m.ask_iv != null ? Number(m.ask_iv) : null);
+    const volume = m.volume != null ? Number(m.volume) : (m.vol != null ? Number(m.vol) : null);
+    let spreadPct = null;
+    if (bidPrice != null && askPrice != null && Number.isFinite(bidPrice) && Number.isFinite(askPrice) && markPrice > 0) {
+      spreadPct = ((askPrice - bidPrice) / markPrice) * 100;
+      // clamp negative nonsense
+      if (spreadPct < 0) spreadPct = 0;
+      spreadPct = Math.round(spreadPct * 10) / 10;
+    }
+    // Normalize bid/ask IV to %
+    const bidIv = bidIvRaw != null && Number.isFinite(bidIvRaw) ? (bidIvRaw <= 5 ? bidIvRaw * 100 : bidIvRaw) : null;
+    const askIv = askIvRaw != null && Number.isFinite(askIvRaw) ? (askIvRaw <= 5 ? askIvRaw * 100 : askIvRaw) : null;
+
+    // Liquidity filter: skip illiquid contracts (only if data available)
+    const liqCfg = cfg.liquidity || { maxSpreadPct: 5, minVolume: 1 };
+    if (spreadPct != null && spreadPct > liqCfg.maxSpreadPct) continue;
+    if (volume != null && Number.isFinite(volume) && volume < liqCfg.minVolume) continue;
+
     const expiry = new Date(expMs).toISOString().slice(0, 10);
     const isHeld = heldSymbols.has(m.symbol) || heldKeys.has(`${expiry}-${strike}-${parts[3]}`);
 
@@ -148,6 +195,12 @@ export function scanEntryOpportunities(
       theta,
       markPrice: Math.round(markPrice * 10) / 10,
       iv: Math.round(iv * 10) / 10,
+      bidPrice: bidPrice != null && Number.isFinite(bidPrice) ? Math.round(bidPrice * 10) / 10 : null,
+      askPrice: askPrice != null && Number.isFinite(askPrice) ? Math.round(askPrice * 10) / 10 : null,
+      bidIv: bidIv != null ? Math.round(bidIv * 10) / 10 : null,
+      askIv: askIv != null ? Math.round(askIv * 10) / 10 : null,
+      volume: volume != null && Number.isFinite(volume) ? volume : null,
+      spreadPct,
       isHeld,
     });
   }
@@ -217,7 +270,9 @@ export function scanEntryOpportunities(
         returnOnMarginPct,
         annualizedYield,
         marketIv: marketIv ?? bestPut.iv,
-        ivRank: null,
+        ivRank: realIvRank,
+        ivPercentile: realIvPercentile,
+        ivHistoryCount: ivHistoryStats?.count ?? 0,
         premiumPerBtc: putPremium,
         expiryDate: expiry,
         putLeg: bestPut,
@@ -227,6 +282,12 @@ export function scanEntryOpportunities(
         isFullyHeld: isPutHeld,
         isPartiallyHeld: false,
         score: shortPutScore,
+        spreadPct: bestPut.spreadPct ?? null,
+        putSpreadPct: bestPut.spreadPct ?? null,
+        maxSpreadPct: bestPut.spreadPct ?? null,
+        volume: bestPut.volume ?? null,
+        bidPrice: bestPut.bidPrice ?? null,
+        askPrice: bestPut.askPrice ?? null,
       });
     }
 
@@ -293,7 +354,9 @@ export function scanEntryOpportunities(
         returnOnMarginPct,
         annualizedYield,
         marketIv: marketIv ?? Math.round((bestSkewPut.iv + bestSkewCall.iv) / 2),
-        ivRank: null,
+        ivRank: realIvRank,
+        ivPercentile: realIvPercentile,
+        ivHistoryCount: ivHistoryStats?.count ?? 0,
         premiumPerBtc: totalPremium,
         expiryDate: expiry,
         putLeg: bestSkewPut,
@@ -305,6 +368,11 @@ export function scanEntryOpportunities(
         isFullyHeld,
         isPartiallyHeld,
         score: skewedScore,
+        putSpreadPct: bestSkewPut.spreadPct ?? null,
+        callSpreadPct: bestSkewCall.spreadPct ?? null,
+        spreadPct: Math.max(bestSkewPut.spreadPct ?? 0, bestSkewCall.spreadPct ?? 0) || null,
+        maxSpreadPct: [bestSkewPut.spreadPct, bestSkewCall.spreadPct].filter(v => v != null).length ? Math.max(...[bestSkewPut.spreadPct, bestSkewCall.spreadPct].filter(v => v != null)) : null,
+        volume: Math.min(bestSkewPut.volume ?? Infinity, bestSkewCall.volume ?? Infinity) === Infinity ? null : Math.min(bestSkewPut.volume ?? Infinity, bestSkewCall.volume ?? Infinity),
       });
     }
 
@@ -370,7 +438,9 @@ export function scanEntryOpportunities(
         returnOnMarginPct,
         annualizedYield,
         marketIv: marketIv ?? Math.round((bestPut.iv + bestCall.iv) / 2),
-        ivRank: null,
+        ivRank: realIvRank,
+        ivPercentile: realIvPercentile,
+        ivHistoryCount: ivHistoryStats?.count ?? 0,
         premiumPerBtc: totalPremium,
         expiryDate: expiry,
         putLeg: bestPut,
@@ -382,6 +452,11 @@ export function scanEntryOpportunities(
         isFullyHeld,
         isPartiallyHeld,
         score: strangleScore,
+        putSpreadPct: bestPut.spreadPct ?? null,
+        callSpreadPct: bestCall.spreadPct ?? null,
+        spreadPct: Math.max(bestPut.spreadPct ?? 0, bestCall.spreadPct ?? 0) || null,
+        maxSpreadPct: [bestPut.spreadPct, bestCall.spreadPct].filter(v => v != null).length ? Math.max(...[bestPut.spreadPct, bestCall.spreadPct].filter(v => v != null)) : null,
+        volume: Math.min(bestPut.volume ?? Infinity, bestCall.volume ?? Infinity) === Infinity ? null : Math.min(bestPut.volume ?? Infinity, bestCall.volume ?? Infinity),
       });
     }
   }

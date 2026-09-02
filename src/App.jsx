@@ -18,8 +18,8 @@ import { scanEntryOpportunities, determineOptimalMarketProfile } from "./service
 import { parseAccountInfo, calculatePortfolioCapacity } from "./services/sizing.js";
 import { loadPaperTrades } from "./services/paperTrading.js";
 import { SoundFX } from "./services/soundFx.js";
-import { RISK_PROFILES } from "./config/strategyConfig.js";
 import { classifyMarketRegime, stabilizeMarketRegime } from "./services/marketRegime.js";
+import { recordIv, getIvRank, getIvPercentile } from "./services/ivHistory.js";
 
 import { MetricCard } from "./components/MetricCard.jsx";
 import { Pill } from "./components/Pill.jsx";
@@ -27,11 +27,17 @@ import { PositionRow, POSITION_GRID_COLS } from "./components/PositionRow.jsx";
 import { AnalysisPanel } from "./components/AnalysisPanel.jsx";
 import { ScannerTab } from "./components/ScannerTab.jsx";
 import { CapacityWidget } from "./components/CapacityWidget.jsx";
+import PnlChart from "./components/PnlChart.jsx";
 import { LiveTickerTape } from "./components/LiveTickerTape.jsx";
 import { SentimentGauge } from "./components/SentimentGauge.jsx";
 import { PayoffSimulator } from "./components/PayoffSimulator.jsx";
 import { PaperTradingDrawer } from "./components/PaperTradingDrawer.jsx";
 import { AlertSettingsModal } from "./components/AlertSettingsModal.jsx";
+import { Onboarding } from "./components/Onboarding.jsx";
+import { BacktestPanel } from "./components/BacktestPanel.jsx";
+
+const REQUIRED_TOKEN =
+  (typeof import.meta !== "undefined" && import.meta.env && (import.meta.env.VITE_APP_ACCESS_TOKEN || import.meta.env.APP_ACCESS_TOKEN)) || "";
 
 const POLL_INTERVAL_MS = 15000; // refresh live data every 15 s
 
@@ -50,6 +56,13 @@ async function readApiJson(response, label) {
 
 // ─── Main App (War Room Experience) ───────────────────────────────────────────
 export default function App() {
+  const [authToken, setAuthToken] = useState(() => {
+    try { return localStorage.getItem("app_token") || ""; } catch { return ""; }
+  });
+  const [tokenInput, setTokenInput] = useState("");
+  const [authError, setAuthError] = useState("");
+  const isAuthed = !REQUIRED_TOKEN || authToken === REQUIRED_TOKEN;
+
   const [positions, setPositions]               = useState([]);
   const [opportunities, setOpportunities]       = useState([]);
   const [btcPrice, setBtcPrice]                 = useState(null);
@@ -61,8 +74,7 @@ export default function App() {
   const [loadingPositions, setLoadingPositions] = useState(true);
   const [lastSync, setLastSync]                 = useState(null);
   const [analyzing, setAnalyzing]               = useState(null);
-  const [tab, setTab]                           = useState("positions"); // "positions" | "scanner" | "rules"
-  const [telegramStatus, setTelegramStatus]     = useState(null); // "ok" | "error" | null
+  const [tab, setTab]                           = useState("positions"); // "positions" | "scanner" | "rules" | "backtest"
   const [alertPrefs, setAlertPrefs]             = useState(() => getAlertPreferences());
   const [alertModalOpen, setAlertModalOpen]     = useState(false);
   const [accountInfo, setAccountInfo]           = useState(null);
@@ -71,6 +83,7 @@ export default function App() {
   const [paperModalOpen, setPaperModalOpen]     = useState(false);
   const [paperCount, setPaperCount]             = useState(0);
   const [optimalProfile, setOptimalProfile]     = useState(null);
+  const [showOnboarding, setShowOnboarding]     = useState(false);
 
   const alertedIdsRef = useRef(getPersistedAlerts(ALERT_STORAGE_KEY));
   const alertedEntryIdsRef = useRef(getPersistedAlerts(ENTRY_STORAGE_KEY));
@@ -86,20 +99,42 @@ export default function App() {
     refreshPaperCount();
   }, [refreshPaperCount, paperModalOpen]);
 
+  const handleUnlock = (e) => {
+    e.preventDefault();
+    if (tokenInput === REQUIRED_TOKEN) {
+      try { localStorage.setItem("app_token", tokenInput); } catch {}
+      document.cookie = `app_token=${encodeURIComponent(tokenInput)}; path=/; max-age=2592000; SameSite=Lax`;
+      setAuthToken(tokenInput);
+      setAuthError("");
+    } else {
+      setAuthError("Token ไม่ถูกต้อง");
+    }
+  };
+
+  const handleLogout = () => {
+    try { localStorage.removeItem("app_token"); } catch {}
+    document.cookie = "app_token=; path=/; max-age=0";
+    setAuthToken("");
+    setTokenInput("");
+  };
+
+  const authHeaders = authToken ? { Authorization: `Bearer ${authToken}` } : {};
+
   const fetchLiveData = useCallback(async () => {
+    if (REQUIRED_TOKEN && !isAuthed) return;
     try {
       const [marketData, posData, marksData, acctData] = await Promise.all([
-        fetch("/api/binance?action=btcMarketContext")
+        fetch("/api/binance?action=btcMarketContext", { headers: authHeaders })
           .then(res => readApiJson(res, "Market Context"))
-          .catch(() => fetch("/api/binance?action=btcPrice").then(res => readApiJson(res, "BTC Price"))),
+          .catch(() => fetch("/api/binance?action=btcPrice", { headers: authHeaders }).then(res => readApiJson(res, "BTC Price"))),
         // Private endpoints: fetch Binance user positions and account
-        fetch("/api/binance?action=optionPositions")
+        fetch("/api/binance?action=optionPositions", { headers: authHeaders })
           .then(res => readApiJson(res, "Options Positions"))
           .catch(error => ({ error: error.message || "Options Positions unavailable" })),
-        fetch("/api/binance?action=optionMarks")
+        fetch("/api/binance?action=optionMarks", { headers: authHeaders })
           .then(res => readApiJson(res, "Options Market"))
           .catch(error => ({ error: error.message || "Options Market unavailable" })),
-        fetch("/api/binance?action=optionAccount")
+        fetch("/api/binance?action=optionAccount", { headers: authHeaders })
           .then(res => readApiJson(res, "Options Account"))
           .catch(() => null),
       ]);
@@ -131,7 +166,19 @@ export default function App() {
           const avgIV = ivValues.reduce((s, v) => s + v, 0) / ivValues.length;
           currentMarketIv = Math.round(avgIV * 100);
           setMarketIv(currentMarketIv);
+          // Record IV history for Rank / Percentile (rolling 90-day, capped at 90)
+          try { recordIv(currentMarketIv); } catch {}
         }
+      }
+
+      // Derive IV Rank / Percentile from rolling history
+      let derivedIvRank = null;
+      let derivedIvPercentile = null;
+      if (currentMarketIv != null) {
+        try {
+          derivedIvRank = getIvRank(currentMarketIv);
+          derivedIvPercentile = getIvPercentile(currentMarketIv);
+        } catch {}
       }
 
       const updatedMarketContext = {
@@ -147,7 +194,8 @@ export default function App() {
         realizedVol7: marketData.realizedVol7 ?? null,
         realizedVol30: marketData.realizedVol30 ?? null,
         marketIv: currentMarketIv,
-        ivRank: null,
+        ivRank: derivedIvRank,
+        ivPercentile: derivedIvPercentile,
       };
       const candidateRegime = classifyMarketRegime(updatedMarketContext);
       regimeStateRef.current = stabilizeMarketRegime(candidateRegime, regimeStateRef.current, 3);
@@ -264,13 +312,14 @@ export default function App() {
     } finally {
       setLoadingPositions(false);
     }
-  }, [alertPrefs]);
+  }, [alertPrefs, isAuthed, authToken]);
 
   useEffect(() => {
+    if (REQUIRED_TOKEN && !isAuthed) return;
     fetchLiveData();
     const timer = setInterval(fetchLiveData, POLL_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [fetchLiveData]);
+  }, [fetchLiveData, isAuthed]);
 
   // Keyboard Shortcuts
   useEffect(() => {
@@ -279,6 +328,7 @@ export default function App() {
       if (e.key === "1") setTab("positions");
       else if (e.key === "2") setTab("scanner");
       else if (e.key === "3") setTab("rules");
+      else if (e.key === "4") setTab("backtest");
       else if (e.key.toLowerCase() === "m") {
         const muted = SoundFX.toggleMute();
         setIsMuted(muted);
@@ -313,6 +363,27 @@ export default function App() {
     boxShadow: tab === t ? `0 -4px 15px rgba(0,240,168,0.12)` : "none",
     transition: "all 0.2s ease",
   });
+
+  if (REQUIRED_TOKEN && !isAuthed) {
+    return (
+      <div style={{ background: T.bg0, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <form onSubmit={handleUnlock} style={{ background: T.bg1, border: `1px solid ${T.border}`, borderRadius: 12, padding: 28, width: "100%", maxWidth: 400, display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ color: T.textPrimary, fontWeight: 900, fontSize: 16, letterSpacing: 2, textAlign: "center" }}>⚡ BTC OPTIONS DESK</div>
+          <div style={{ color: T.textSecondary, fontSize: 12, textAlign: "center" }}>กรอก Access Token เพื่อปลดล็อก Dashboard</div>
+          <input
+            type="password"
+            value={tokenInput}
+            onChange={e => setTokenInput(e.target.value)}
+            placeholder="APP_ACCESS_TOKEN"
+            autoFocus
+            style={{ background: T.bg2, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", color: T.textPrimary, fontFamily: T.font, fontSize: 13, outline: "none" }}
+          />
+          {authError && <div style={{ color: T.red, fontSize: 12 }}>{authError}</div>}
+          <button type="submit" style={{ background: T.green, color: "#05070a", border: "none", borderRadius: 8, padding: "10px 16px", fontWeight: 800, cursor: "pointer", letterSpacing: 1 }}>UNLOCK</button>
+        </form>
+      </div>
+    );
+  }
 
   return (
     <div style={{ background: T.bg0, minHeight: "100vh", color: T.textPrimary, fontFamily: T.fontSans }}>
@@ -440,6 +511,21 @@ export default function App() {
             </button>
           </div>
 
+          {REQUIRED_TOKEN && (
+            <button
+              onClick={handleLogout}
+              title="Lock dashboard"
+              style={{
+                background: T.bg2,
+                border: `1px solid ${T.border}`,
+                color: T.textMuted,
+                borderRadius: 6, padding: "5px 10px", cursor: "pointer",
+                fontFamily: T.fontSans, fontSize: 11, fontWeight: 700,
+              }}
+            >
+              🔒 LOCK
+            </button>
+          )}
           <div style={{ textAlign: "right" }}>
             <div style={{ color: T.textSecondary, fontSize: 10, letterSpacing: 1, fontFamily: T.fontSans }}>
               BTC / USDT {marketContext.change24h != null && dataStatus !== "offline" && (
@@ -493,6 +579,11 @@ export default function App() {
         </div>
       )}
 
+      {/* ── PnL Equity Curve ─────────────────────────────────────────────────── */}
+      <div style={{ padding: "0 24px 16px" }}>
+        <PnlChart positions={positions} />
+      </div>
+
       {/* ── Tabs Navigation ──────────────────────────────────────────────────── */}
       <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, marginLeft: 24, marginRight: 24, gap: 4 }}>
         <button
@@ -527,6 +618,16 @@ export default function App() {
         >
           🛡️ RULES v3.0
         </button>
+        <button
+          id="tab-backtest"
+          style={tabStyle("backtest")}
+          onClick={() => {
+            SoundFX.playClick();
+            setTab("backtest");
+          }}
+        >
+          🧪 BACKTEST
+        </button>
       </div>
 
       {/* ── Scanner Tab ──────────────────────────────────────────────────────── */}
@@ -558,17 +659,20 @@ export default function App() {
             <div style={{ padding: 40, textAlign: "center", color: T.textMuted, fontFamily: T.font, fontSize: 12 }}>ไม่มี open positions ในขณะนี้</div>
           ) : (
             <>
-              <div style={{ overflowX: "auto" }}>
-                <div style={{
-                  display: "grid", gridTemplateColumns: POSITION_GRID_COLS,
-                  gap: 0, padding: "8px 16px", background: T.bg1,
-                  borderBottom: `1px solid ${T.border}`, minWidth: 690,
-                }}>
+              <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+                <div
+                  className="positions-header-desktop"
+                  style={{
+                    display: "grid", gridTemplateColumns: POSITION_GRID_COLS,
+                    gap: 0, padding: "8px 16px", background: T.bg1,
+                    borderBottom: `1px solid ${T.border}`, minWidth: 690,
+                  }}
+                >
                   {["TYPE", "STRIKE", "DTE", "DELTA", "THETA", "IV", "RECEIVED", "P&L", "STATUS", ""].map(h => (
                     <span key={h} style={{ color: T.textMuted, fontSize: 9, letterSpacing: 2, fontFamily: T.font }}>{h}</span>
                   ))}
                 </div>
-                <div style={{ minWidth: 690 }}>
+                <div style={{ minWidth: 690 }} className="positions-rows-desktop">
                   {positions.map(pos => (
                     <PositionRow
                       key={pos.id}
@@ -650,6 +754,14 @@ export default function App() {
         </div>
       )}
 
+
+      {/* ── Backtest Tab ─────────────────────────────────────────────────────── */}
+      {tab === "backtest" && (
+        <div style={{ paddingTop: 20 }}>
+          <BacktestPanel />
+        </div>
+      )}
+
       {/* ── Payoff Simulator Modal ─────────────────────────────────────────────── */}
       {payoffSetup && (
         <PayoffSimulator
@@ -667,6 +779,12 @@ export default function App() {
           onClose={() => setPaperModalOpen(false)}
         />
       )}
+
+      {/* ── Onboarding Modal (first visit + no env) ─────────────────────────────── */}
+      <Onboarding
+        isOpen={showOnboarding}
+        onClose={() => setShowOnboarding(false)}
+      />
 
       {/* ── Alert Settings Modal ────────────────────────────────────────────── */}
       <AlertSettingsModal
@@ -700,6 +818,14 @@ export default function App() {
         button:focus-visible {
           outline: 2px solid ${T.green};
           outline-offset: 2px;
+        }
+
+        /* — Mobile responsiveness for positions table — */
+        @media (max-width: 640px) {
+          .positions-header-desktop { display: none !important; }
+          .positions-rows-desktop { min-width: 0 !important; }
+          /* Reduce outer padding on mobile for edge-to-edge cards */
+          /* App root already has responsive flex-wrap; this tightens horizontal padding */
         }
       `}</style>
     </div>

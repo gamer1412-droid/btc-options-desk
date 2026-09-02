@@ -6,6 +6,7 @@
 
 import { STRATEGY_CONFIG } from "../config/strategyConfig.js";
 import { classifyMarketRegime } from "./marketRegime.js";
+import { getHistoryStats } from "./ivHistory.js";
 
 /**
  * Evaluates an entry opportunity against strategy rules according to its strategy type.
@@ -23,6 +24,17 @@ export function evaluateEntryRules(opp, marketContext = {}, accountInfo = null, 
   let isBlocked = false;
   let hasWarning = false;
   let sizeMultiplier = 1.0;
+  const sizingBreakdown = {
+    regime: 1.0,
+    dte: 1.0,
+    iv: 1.0,
+    ma20: 1.0,
+    volatility: 1.0,
+    margin: 1.0,
+    drawdown: 1.0,
+    event: 1.0,
+    final: 1.0,
+  };
 
   const strategy = opp.strategy || "STRANGLE";
   const isShortPut = strategy === "SHORT_PUT";
@@ -52,6 +64,7 @@ export function evaluateEntryRules(opp, marketContext = {}, accountInfo = null, 
     reasons.push(`⛔ Regime อนุญาตเฉพาะ ${regime.allowedStrategies.join(", ") || "NO_TRADE"}`);
   } else {
     sizeMultiplier *= regime.sizeMultiplier;
+    sizingBreakdown.regime = regime.sizeMultiplier;
     checks.push({
       rule: "Market Regime Gate",
       status: regime.sizeMultiplier < 1 ? "WARNING" : "PASS",
@@ -111,19 +124,20 @@ export function evaluateEntryRules(opp, marketContext = {}, accountInfo = null, 
     });
   } else if (dte >= cfg.dte.shortDteMin && dte <= cfg.dte.shortDteMax) {
     hasWarning = true;
-    sizeMultiplier *= cfg.dte.shortDteMultiplier; // Reduce size 25%
+    sizeMultiplier *= cfg.dte.shortDteMultiplier;
+    sizingBreakdown.dte = cfg.dte.shortDteMultiplier;
     checks.push({
       rule: "DTE Window",
       status: "WARNING",
-      message: `DTE = ${dte} วัน (14–17 วัน → ลดขนาด Position 25%)`,
+      message: `DTE = ${dte} วัน (${cfg.dte.shortDteMin}–${cfg.dte.shortDteMax} วัน → ลดขนาด Position ${Math.round((1 - cfg.dte.shortDteMultiplier) * 100)}%)`,
       icon: "⚠️",
     });
-    reasons.push(`⚠️ DTE = ${dte} วัน (ช่วง 14–17 วัน ลด Position Size 25%)`);
+    reasons.push(`⚠️ DTE = ${dte} วัน (ช่วง ${cfg.dte.shortDteMin}–${cfg.dte.shortDteMax} วัน ลด Position Size ${Math.round((1 - cfg.dte.shortDteMultiplier) * 100)}%)`);
   } else {
     checks.push({
       rule: "DTE Window",
       status: "PASS",
-      message: `DTE = ${dte} วัน (ผ่านเกณฑ์ 14–28 วัน)`,
+      message: `DTE = ${dte} วัน (ผ่านเกณฑ์ ${cfg.dte.min}–${cfg.dte.max} วัน)`,
       icon: "✅",
     });
   }
@@ -215,44 +229,43 @@ export function evaluateEntryRules(opp, marketContext = {}, accountInfo = null, 
 
   // ── 4. Implied Volatility (IV) Filter ──────────────────────────────────
   const ivRank = marketContext.ivRank ?? opp.ivRank ?? null;
-  const marketIv = marketContext.marketIv ?? opp.marketIv ?? null;
+  const ivPercentile = marketContext.ivPercentile ?? opp.ivPercentile ?? null;
+  let ivStats = null;
+  try { ivStats = getHistoryStats(); } catch {}
+  const historyCount = ivStats?.count ?? opp.ivHistoryCount ?? 0;
   if (ivRank != null) {
+    const rankStr = `IV Rank ${ivRank}%` + (ivPercentile != null ? ` / IVp ${ivPercentile}%` : "");
+    const rangeStr = ivStats && ivStats.min != null ? ` (90d range ${ivStats.min}–${ivStats.max}%, n=${historyCount})` : "";
     if (ivRank < cfg.iv.ivrMin) {
       isBlocked = true;
       checks.push({
         rule: "IV Rank Filter",
         status: "BLOCKED",
-        message: `IV Rank = ${ivRank}% (< ${cfg.iv.ivrMin}%) — Premium ไม่คุ้ม Tail Risk`,
+        message: `${rankStr} (< ${cfg.iv.ivrMin}%) — Premium ไม่คุ้ม Tail Risk${rangeStr}`,
         icon: "❌",
       });
-      reasons.push(`❌ IV Rank = ${ivRank}% (ต่ำกว่าเกณฑ์ ${cfg.iv.ivrMin}% → ห้ามเปิด Position)`);
+      reasons.push(`❌ ${rankStr} (ต่ำกว่าเกณฑ์ ${cfg.iv.ivrMin}% → ห้ามเปิด Position)${rangeStr}`);
     } else {
       checks.push({
         rule: "IV Rank Filter",
         status: "PASS",
-        message: `IV Rank = ${ivRank}% (>= ${cfg.iv.ivrMin}% พรีเมียมสูง คุ้มค่าเสี่ยง)`,
+        message: `${rankStr} (>= ${cfg.iv.ivrMin}% พรีเมียมสูง คุ้มค่าเสี่ยง)${rangeStr}`,
         icon: "✅",
       });
     }
-  } else if (marketIv != null) {
-    hasWarning = true;
-    sizeMultiplier *= 0.75;
-    checks.push({
-      rule: "Volatility Data Quality",
-      status: "WARNING",
-      message: `มีเฉพาะ Chain Average IV = ${Number(marketIv).toFixed(1)}% — ยังไม่มี IV Rank จากข้อมูลย้อนหลัง`,
-      icon: "⚠️",
-    });
-    reasons.push("⚠️ ยังไม่มี IV Rank/Percentile จริง ระบบลดขนาดแนะนำ 25% และไม่ใช้ Current IV แทน Historical IV Rank");
   } else {
+    const need = 7 - historyCount;
+    const fallbackMsg = historyCount === 0
+      ? "ไม่มีข้อมูล IV Rank ย้อนหลัง — ต้องสะสมอย่างน้อย 7 วันก่อนเปิดสถานะใหม่"
+      : `มีข้อมูลเพียง ${historyCount} วัน — ต้องสะสมครบ 7 วัน (ขาดอีก ${need} วัน) จึงคำนวณ IV Rank ได้`;
     isBlocked = true;
     checks.push({
-      rule: "Volatility Data Quality",
+      rule: "IV Rank Filter",
       status: "BLOCKED",
-      message: "ไม่มีข้อมูล IV ที่เชื่อถือได้",
+      message: `⏳ ${fallbackMsg} (90d history: ${historyCount}/7)`,
       icon: "❌",
     });
-    reasons.push("❌ ไม่มีข้อมูล IV — งดเปิด Position จาก Scanner");
+    reasons.push(`❌ ${fallbackMsg} — งดเปิด Position จนกว่าจะมี Historical IV Rank`);
   }
 
   // ── 5. Market Regime (Distance from MA20) ──────────────────────────────
@@ -265,6 +278,7 @@ export function evaluateEntryRules(opp, marketContext = {}, accountInfo = null, 
       if (rawDistMA20 > 20.0) {
         hasWarning = true;
         sizeMultiplier *= 0.50;
+        sizingBreakdown.ma20 *= 0.50;
         checks.push({
           rule: "Market Regime (MA20)",
           status: "WARNING",
@@ -291,6 +305,7 @@ export function evaluateEntryRules(opp, marketContext = {}, accountInfo = null, 
       } else {
         hasWarning = true;
         sizeMultiplier *= 0.50;
+        sizingBreakdown.ma20 *= 0.50;
         checks.push({
           rule: "Market Regime (MA20)",
           status: "WARNING",
@@ -313,6 +328,7 @@ export function evaluateEntryRules(opp, marketContext = {}, accountInfo = null, 
       } else if (absDistMA20 > 8.0) {
         hasWarning = true;
         sizeMultiplier *= 0.50;
+        sizingBreakdown.ma20 *= 0.50;
         checks.push({
           rule: "Market Regime (MA20)",
           status: "WARNING",
@@ -342,6 +358,7 @@ export function evaluateEntryRules(opp, marketContext = {}, accountInfo = null, 
       } else if (absDistMA20 > cfg.regime.normalMaxPct) {
         hasWarning = true;
         sizeMultiplier *= 0.50;
+        sizingBreakdown.ma20 *= 0.50;
         checks.push({
           rule: "Market Regime (MA20)",
           status: "WARNING",
@@ -376,6 +393,7 @@ export function evaluateEntryRules(opp, marketContext = {}, accountInfo = null, 
       } else if (dailyMove >= cfg.volatilitySafety.maxDailyMovePct) {
         hasWarning = true;
         sizeMultiplier *= 0.75;
+        sizingBreakdown.volatility *= 0.75;
         checks.push({
           rule: "Daily Volatility",
           status: "WARNING",
@@ -428,6 +446,7 @@ export function evaluateEntryRules(opp, marketContext = {}, accountInfo = null, 
     } else if (marginPct >= cfg.sizing.cautionMarginPct) {
       hasWarning = true;
       sizeMultiplier *= 0.5;
+      sizingBreakdown.margin *= 0.5;
       checks.push({
         rule: "Total Margin Limit",
         status: "WARNING",
@@ -440,6 +459,155 @@ export function evaluateEntryRules(opp, marketContext = {}, accountInfo = null, 
         rule: "Total Margin Limit",
         status: "PASS",
         message: `Margin Used = ${marginPct}% (< ${cfg.sizing.cautionMarginPct}% Caution)`,
+        icon: "✅",
+      });
+    }
+  }
+
+  // ── 7b. Drawdown Guard ─────────────────────────────────────────────────
+  if (accountInfo && accountInfo.equity > 0) {
+    const equity = Number(accountInfo.equity);
+    const initial = Number(accountInfo.initialEquity ?? accountInfo.initialBalance ?? accountInfo.startingEquity ?? 0);
+    let dailyPnl = accountInfo.dailyPnl != null ? Number(accountInfo.dailyPnl) : null;
+    let monthlyPnl = accountInfo.monthlyPnl != null ? Number(accountInfo.monthlyPnl) : null;
+    if (dailyPnl == null || monthlyPnl == null) {
+      const totalPnl = Array.isArray(currentPositions) ? currentPositions.reduce((s, p) => s + Number(p.pnl ?? p.unrealizedPnl ?? p.totalPnl ?? 0), 0) : 0;
+      if (dailyPnl == null) dailyPnl = totalPnl;
+      if (monthlyPnl == null) monthlyPnl = totalPnl;
+    }
+    // Prefer equity vs initial if available for monthly drawdown
+    let dailyLossPct = dailyPnl != null && dailyPnl < 0 && equity > 0 ? (-dailyPnl / equity) * 100 : 0;
+    let monthlyLossPct = monthlyPnl != null && monthlyPnl < 0 && equity > 0 ? (-monthlyPnl / equity) * 100 : 0;
+    if (initial > 0 && equity < initial) {
+      const equityDrawdownPct = ((initial - equity) / initial) * 100;
+      monthlyLossPct = Math.max(monthlyLossPct, equityDrawdownPct);
+    }
+    if (dailyLossPct >= cfg.drawdown.dailyLossLimitPct) {
+      isBlocked = true;
+      checks.push({
+        rule: "Drawdown Guard",
+        status: "BLOCKED",
+        message: `Daily Loss ${dailyLossPct.toFixed(2)}% (>= ${cfg.drawdown.dailyLossLimitPct}% Limit) — งดเปิดสถานะใหม่`,
+        icon: "❌",
+      });
+      reasons.push(`❌ Daily Loss ${dailyLossPct.toFixed(2)}% เกินลิมิต ${cfg.drawdown.dailyLossLimitPct}% — หยุดเทรดวันนี้`);
+    } else if (monthlyLossPct >= cfg.drawdown.monthlyLossStopPct) {
+      isBlocked = true;
+      checks.push({
+        rule: "Drawdown Guard",
+        status: "BLOCKED",
+        message: `Monthly Loss ${monthlyLossPct.toFixed(2)}% (>= ${cfg.drawdown.monthlyLossStopPct}% Stop) — งดเปิดสถานะใหม่`,
+        icon: "❌",
+      });
+      reasons.push(`❌ Monthly Loss ${monthlyLossPct.toFixed(2)}% เกินลิมิต ${cfg.drawdown.monthlyLossStopPct}% — หยุดเทรดเดือนนี้`);
+    } else if (monthlyLossPct >= cfg.drawdown.monthlyLossHalfSizePct) {
+      hasWarning = true;
+      sizeMultiplier *= 0.5;
+      sizingBreakdown.drawdown *= 0.5;
+      checks.push({
+        rule: "Drawdown Guard",
+        status: "WARNING",
+        message: `Monthly Loss ${monthlyLossPct.toFixed(2)}% (>= ${cfg.drawdown.monthlyLossHalfSizePct}% — ลด Size 50%)`,
+        icon: "⚠️",
+      });
+      reasons.push(`⚠️ Monthly Loss ${monthlyLossPct.toFixed(2)}% เกิน ${cfg.drawdown.monthlyLossHalfSizePct}% — ลดขนาดครึ่งหนึ่ง`);
+    } else if (dailyLossPct > 0 || monthlyLossPct > 0) {
+      checks.push({
+        rule: "Drawdown Guard",
+        status: "PASS",
+        message: `Drawdown Daily ${dailyLossPct.toFixed(2)}% / Monthly ${monthlyLossPct.toFixed(2)}% (ผ่านเกณฑ์)`,
+        icon: "✅",
+      });
+    }
+  }
+
+  // ── 7c. Event Filter (CPI / FOMC) ───────────────────────────────────────
+  {
+    const upcomingEvent = marketContext.upcomingEvent ?? marketContext.nextEvent ?? marketContext.eventName ?? null;
+    const daysToEventRaw = marketContext.daysToEvent ?? marketContext.eventInDays ?? marketContext.daysUntilEvent ?? marketContext.upcomingEventDays ?? null;
+    const daysToEvent = daysToEventRaw != null ? Number(daysToEventRaw) : null;
+    const cfgDays = cfg.events?.blockBeforeCPI_FOMC_Days ?? 1;
+    if (upcomingEvent && daysToEvent != null && Number.isFinite(daysToEvent)) {
+      const evt = String(upcomingEvent).toUpperCase();
+      if ((evt === "CPI" || evt === "FOMC") && daysToEvent <= cfgDays) {
+        if (daysToEvent <= 0) {
+          isBlocked = true;
+          checks.push({
+            rule: "Event Filter",
+            status: "BLOCKED",
+            message: `ใกล้เหตุการณ์ ${evt} อีก ${daysToEvent} วัน — งดเปิดสถานะใหม่ (Block ${cfgDays} วันก่อนหน้า)`,
+            icon: "⛔",
+          });
+          reasons.push(`⛔ ใกล้เหตุการณ์ ${evt} (${daysToEvent} วัน) — งดเปิดสถานะใหม่`);
+        } else {
+          hasWarning = true;
+          sizeMultiplier *= 0.5;
+          sizingBreakdown.event *= 0.5;
+          checks.push({
+            rule: "Event Filter",
+            status: "WARNING",
+            message: `ใกล้เหตุการณ์ ${evt} อีก ${daysToEvent} วัน — ลด Size 50% (Block ${cfgDays} วันก่อนหน้า)`,
+            icon: "⚠️",
+          });
+          reasons.push(`⚠️ ใกล้เหตุการณ์ ${evt} อีก ${daysToEvent} วัน — ลดขนาด 50% / พิจารณางดเปิด`);
+        }
+      }
+    }
+  }
+
+  // ── 7d. Liquidity (Bid-Ask Spread) ─────────────────────────────────────
+  {
+    const maxSpread = cfg.liquidity?.maxSpreadPct ?? 5;
+    const warnSpread = cfg.liquidity?.warnSpreadPct ?? 3;
+    let worstSpread = null;
+    const candidates = [
+      opp.maxSpreadPct,
+      opp.spreadPct,
+      opp.putSpreadPct,
+      opp.callSpreadPct,
+      opp.putLeg?.spreadPct,
+      opp.callLeg?.spreadPct,
+      opp.put?.spreadPct,
+      opp.call?.spreadPct,
+    ];
+    for (const v of candidates) {
+      if (v != null && Number.isFinite(Number(v))) {
+        const n = Number(v);
+        if (worstSpread == null || n > worstSpread) worstSpread = n;
+      }
+    }
+    if (worstSpread != null) {
+      if (worstSpread > maxSpread) {
+        isBlocked = true;
+        checks.push({
+          rule: "Liquidity",
+          status: "BLOCKED",
+          message: `Spread ${worstSpread.toFixed(1)}% (> ${maxSpread}% — สภาพคล่องต่ำ เสี่ยง slippage)`,
+          icon: "❌",
+        });
+        reasons.push(`❌ Liquidity Spread ${worstSpread.toFixed(1)}% เกิน ${maxSpread}% — สภาพคล่องต่ำ ห้ามเปิด`);
+      } else if (worstSpread >= warnSpread) {
+        hasWarning = true;
+        checks.push({
+          rule: "Liquidity",
+          status: "WARNING",
+          message: `Spread ${worstSpread.toFixed(1)}% (${warnSpread}–${maxSpread}% — สภาพคล่องปานกลาง)`,
+          icon: "⚠️",
+        });
+        reasons.push(`⚠️ Spread ${worstSpread.toFixed(1)}% ช่วง ${warnSpread}–${maxSpread}% — ระวัง slippage`);
+      } else {
+        checks.push({
+          rule: "Liquidity",
+          status: "PASS",
+          message: `Spread ${worstSpread.toFixed(1)}% (< ${warnSpread}% — สภาพคล่องดี)`,
+          icon: "✅",
+        });
+      }
+    } else {
+      checks.push({
+        rule: "Liquidity",
+        status: "PASS",
+        message: "ไม่มีข้อมูล Bid/Ask — ข้ามการตรวจสภาพคล่อง",
         icon: "✅",
       });
     }
@@ -480,10 +648,20 @@ export function evaluateEntryRules(opp, marketContext = {}, accountInfo = null, 
   } else if (hasWarning) {
     decision = "WARNING";
   }
+  sizingBreakdown.final = Math.round(sizeMultiplier * 100) / 100;
+  if (isBlocked) {
+    sizingBreakdown.final = 0;
+    Object.keys(sizingBreakdown).forEach(k => { if (k !== "final" && sizingBreakdown[k] !== 1.0) sizingBreakdown[k] = Math.round(sizingBreakdown[k]*100)/100; });
+  } else {
+    Object.keys(sizingBreakdown).forEach(k => { sizingBreakdown[k] = Math.round(sizingBreakdown[k]*100)/100; });
+  }
 
   return {
     decision,
     sizeMultiplier: Math.round(sizeMultiplier * 100) / 100,
+    sizingBreakdown,
+    sizingMultiplier: Math.round(sizeMultiplier * 100) / 100,
+    breakdown: { ...sizingBreakdown },
     checks,
     reasons,
     isPassed: decision === "PASS",
@@ -496,6 +674,19 @@ export function evaluateEntryRules(opp, marketContext = {}, accountInfo = null, 
  * Classifies an active position into the v2.0 State Machine.
  * States: NORMAL -> WARNING -> DEFENSIVE -> ROLL_PENDING -> ROLLED -> EXIT
  */
+export function getSizingMultiplier(resultOrBreakdown) {
+  if (!resultOrBreakdown) return 1.0;
+  if (typeof resultOrBreakdown === "number") return resultOrBreakdown;
+  if (resultOrBreakdown.sizingBreakdown) return resultOrBreakdown.sizingBreakdown.final ?? resultOrBreakdown.sizeMultiplier ?? 1.0;
+  if (resultOrBreakdown.breakdown) return resultOrBreakdown.breakdown.final ?? 1.0;
+  if (resultOrBreakdown.final != null) return resultOrBreakdown.final;
+  return 1.0;
+}
+
+export function getSizingBreakdown(result) {
+  return result?.sizingBreakdown ?? result?.breakdown ?? null;
+}
+
 export function classifyPositionState(pos) {
   const cfg = STRATEGY_CONFIG;
   const absDelta = Math.abs(pos.delta || 0);

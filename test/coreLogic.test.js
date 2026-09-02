@@ -189,7 +189,7 @@ test("scanner produces no entry opportunities in a no-trade regime", () => {
   assert.deepEqual(results, []);
 });
 
-test("position alerts use the configured 50 percent take-profit target", () => {
+test("position alerts use the configured 35 percent take-profit target", () => {
   const alerts = checkAlerts([{
     id: "BTC-300101-90000-P",
     type: "Short Put",
@@ -201,7 +201,7 @@ test("position alerts use the configured 50 percent take-profit target", () => {
   }], new Set(), DEFAULT_ALERT_PREFERENCES);
   assert.equal(alerts.length, 1);
   assert.equal(alerts[0].alertLevel, "TAKE_PROFIT");
-  assert.match(alerts[0].reason, />= 50%/);
+  assert.match(alerts[0].reason, />= 35%/);
 });
 
 test("server cron formats and sends entry signals to Telegram", async () => {

@@ -17,16 +17,16 @@ export const RISK_PROFILES = {
   },
   BALANCED_ALPHA: {
     key: "BALANCED_ALPHA",
-    label: "⚡ BALANCED ALPHA (Moderate Risk)",
-    desc: "Delta 0.20–0.24, DTE 12–20 วัน เก็บ Premium หนา Theta ไว (แนะนำ)",
+    label: "⚡ BALANCED ALPHA (Theta Fast)",
+    desc: "Delta 0.18–0.25, DTE 10–16 วัน Theta ละลายไว ปิด 35% หมุนเร็ว (แนะนำ)",
     deltaMin: 0.18,
     deltaMax: 0.25,
     bullishPutMax: 0.27,
-    dtePreferredMin: 12,
-    dtePreferredMax: 20,
-    dteMin: 10,
+    dtePreferredMin: 10,
+    dtePreferredMax: 16,
+    dteMin: 8,
     dteMax: 28,
-    takeProfitPct: 50,
+    takeProfitPct: 35,
   },
   HIGH_YIELD: {
     key: "HIGH_YIELD",
@@ -65,8 +65,8 @@ export const STRATEGY_CONFIG = {
 
   // 2. Implied Volatility (IV) Filter
   iv: {
-    ivrMin: 28,             // IV Rank >= 28%
-    ivpMin: 35,
+    ivrMin: 35,             // IV Rank >= 35% — premium หนา คุ้ม tail risk
+    ivpMin: 40,
     lowIvpSizeMultiplier: 0.50,
   },
 
@@ -74,8 +74,8 @@ export const STRATEGY_CONFIG = {
   dte: {
     min: 8,
     max: 28,
-    preferredMin: 12,
-    preferredMax: 20,
+    preferredMin: 10,
+    preferredMax: 16,
     shortDteMin: 8,
     shortDteMax: 11,
     shortDteMultiplier: 0.80,
@@ -110,7 +110,7 @@ export const STRATEGY_CONFIG = {
 
   // 8. Dynamic Take Profit Rules
   exit: {
-    mainTpPct: 50,          // 50% of original premium -> CLOSE & Rotate
+    mainTpPct: 35,          // 35% of original premium -> CLOSE & Rotate (หมุนเร็ว)
     quickTpPct: 30,         // 30% within <= 4 calendar days -> CLOSE
     quickTpDays: 4,
     dteStop: 2,
@@ -137,5 +137,17 @@ export const STRATEGY_CONFIG = {
     monthlyLossStopPct: 15.0,
     consecutiveLossHalfSize: 3,
     consecutiveLossPause: 5,
+  },
+
+  // 12. Event Filter
+  events: {
+    blockBeforeCPI_FOMC_Days: 1,
+  },
+
+  // 13. Liquidity / Spread Filter
+  liquidity: {
+    maxSpreadPct: 5,        // BLOCK if (ask-bid)/markPrice*100 > 5%
+    warnSpreadPct: 3,       // WARNING if 3-5%
+    minVolume: 1,           // minimum 24h volume (contracts) — if API provides it
   },
 };
