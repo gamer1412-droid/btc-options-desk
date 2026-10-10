@@ -7,7 +7,8 @@ export function AnalysisPanel({ pos, btcPrice, marketIv, onClose }) {
   const [analysisHtml, setAnalysisHtml] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const isStrangleSetup = pos?.strategy === "STRANGLE";
+  const isOpportunity = Boolean(pos?.strategy);
+  const strategy = pos?.strategy;
   const isCall = Boolean(pos?.type?.includes("Call"));
 
   // Keep references to prevent 15-second background price polling from re-triggering analysis while user is reading
@@ -19,12 +20,70 @@ export function AnalysisPanel({ pos, btcPrice, marketIv, onClose }) {
     setAnalysisHtml("");
 
     const { pos: currentPos, btcPrice: currentBtcPrice, marketIv: currentMarketIv } = propsRef.current;
-
-    const marketIvStr = currentMarketIv != null ? `${currentMarketIv}% (ค่าเฉลี่ย IV ปัจจุบัน ไม่ใช่ IV Rank)` : "ไม่มีข้อมูล";
+    const marketIvStr = currentMarketIv != null ? `${currentMarketIv}% (ค่าเฉลี่ย IV ปัจจุบัน)` : "ไม่มีข้อมูล";
 
     let prompt = "";
-    if (isStrangleSetup) {
-      prompt = `You are an expert BTC options trader specializing in Short Strangle strategies.
+    if (currentPos?.strategy === "SHORT_PUT") {
+      prompt = `You are an expert BTC options trader specializing in Bullish Short Put strategies.
+Analyze this proposed BULLISH SHORT PUT ENTRY OPPORTUNITY on Binance Options.
+
+MARKET DATA:
+- BTC Price: $${currentBtcPrice?.toLocaleString() ?? "unknown"}
+- Option Chain Average IV: ${marketIvStr}
+
+PROPOSED SHORT PUT SETUP:
+- Expiry: ${currentPos.expiry} (${currentPos.dte} days to expiry)
+- Short Put Strike: $${Number(currentPos.putStrike || currentPos.strike).toLocaleString()} (Delta: ${currentPos.putDelta || currentPos.delta}, IV: ${currentPos.putIV || currentPos.iv}%, Mark: $${currentPos.putMark || currentPos.markPrice})
+- Downside Buffer: ${currentPos.putDistancePct}% below current BTC spot
+- Breakeven Price: $${Number(currentPos.breakevenLow).toLocaleString()}
+- Total Premium: ~$${currentPos.totalPremium} / 1 BTC
+- Total Theta: +$${currentPos.totalTheta}/day
+- Annualized Yield (ROM): ${currentPos.annualizedYield}%
+
+Respond in Thai language according to v3.0 Trading Rules (Take Profit target 35%, Hard Stop Loss 2x premium, DTE exit <= 2). Format your response as:
+
+**สถานะ:** [GOOD TO ENTER / WAIT / AVOID]
+**Action แนะนำ:** [OPEN SHORT PUT / WAIT FOR BETTER SPOT LEVEL / ADJUST STRIKE]
+
+**การประเมินความคุ้มค่าและความเสี่ยง:** (3-4 ประโยค อธิบายความกว้างของ Downside Buffer, แนวรับ BTC และ Theta Decay)
+
+**แผนการจัดการ Position (Plan of Action):**
+- Take Profit: [แนะนำจุดปิดทำกำไร 35% เพื่อหมุนเงินเร็ว หรือ 30% ใน 4 วันแรก]
+- Stop Loss: [แนะนำจุดตัดขาดทุน 2x Premium เมื่อราคาลงหลุด Breakeven]
+- Defense Trigger: [แนะนำเฝ้าระวังเมื่อ Delta >= 0.38 และเตรียม Action เมื่อ Delta >= 0.52]
+
+**คำแนะนำการเปิดออเดอร์บน Binance:** (สรุปสิ่งที่ต้องเปิดใน Binance Options)`;
+    } else if (currentPos?.strategy === "SKEWED_STRANGLE") {
+      prompt = `You are an expert BTC options trader specializing in Skewed Strangle strategies with a bullish bias.
+Analyze this proposed SKEWED STRANGLE ENTRY OPPORTUNITY on Binance Options.
+
+MARKET DATA:
+- BTC Price: $${currentBtcPrice?.toLocaleString() ?? "unknown"}
+- Option Chain Average IV: ${marketIvStr}
+
+PROPOSED SKEWED STRANGLE SETUP:
+- Expiry: ${currentPos.expiry} (${currentPos.dte} days to expiry)
+- Short Put: Strike $${Number(currentPos.putStrike).toLocaleString()} (Delta: ${currentPos.putDelta}, Buffer: -${currentPos.putDistancePct}%)
+- Wide Short Call: Strike $${Number(currentPos.callStrike).toLocaleString()} (Delta: +${currentPos.callDelta}, Buffer: +${currentPos.callDistancePct}%)
+- Total Premium: ~$${currentPos.totalPremium} / 1 BTC
+- Total Theta: +$${currentPos.totalTheta}/day
+- Safe Zone: $${Number(currentPos.breakevenLow).toLocaleString()} – $${Number(currentPos.breakevenHigh).toLocaleString()}
+
+Respond in Thai language according to v3.0 Trading Rules (Take Profit target 35%, Hard Stop Loss 2x premium, DTE exit <= 2). Format your response as:
+
+**สถานะ:** [GOOD TO ENTER / WAIT / AVOID]
+**Action แนะนำ:** [OPEN SKEWED STRANGLE / WAIT FOR BETTER IV / ADJUST STRIKE]
+
+**การประเมินความคุ้มค่าและความเสี่ยง:** (3-4 ประโยค อธิบายความกว้างของ Safe Zone, ความได้เปรียบของ Call ไกลพิเศษ และ Theta)
+
+**แผนการจัดการ Position (Plan of Action):**
+- Take Profit: [แนะนำจุดปิดทำกำไร 35% เพื่อปลดล็อก Margin]
+- Stop Loss: [ตัดขาดทุน 2x Premium หรือราคาหลุดกรอบ Breakeven]
+- Roll Plan: [จังหวะที่ควร Roll ขาที่ถูกทดสอบ]
+
+**คำแนะนำการเปิดออเดอร์บน Binance:** (สรุปสิ่งที่ต้องเปิดใน Binance Options)`;
+    } else if (currentPos?.strategy === "STRANGLE") {
+      prompt = `You are an expert BTC options trader specializing in Delta-Neutral Short Strangle strategies.
 Analyze this proposed SHORT STRANGLE ENTRY OPPORTUNITY on Binance Options.
 
 MARKET DATA:
@@ -39,7 +98,7 @@ PROPOSED STRANGLE SETUP:
 - Total Theta: +$${currentPos.totalTheta}/day
 - Breakeven Range: $${Number(currentPos.breakevenLow).toLocaleString()} – $${Number(currentPos.breakevenHigh).toLocaleString()}
 
-Respond in Thai language. Format your response as:
+Respond in Thai language according to v3.0 Trading Rules (Take Profit 35%, Hard Stop Loss 2x premium, DTE exit <= 2). Format your response as:
 
 **สถานะ:** [GOOD TO ENTER / WAIT / AVOID]
 **Action แนะนำ:** [OPEN POSITION / WAIT FOR BETTER IV / ADJUST STRIKE]
@@ -47,14 +106,14 @@ Respond in Thai language. Format your response as:
 **การประเมินความคุ้มค่าและความเสี่ยง:** (3-4 ประโยค อธิบายความกว้างของ Safe Zone, IV และ Theta)
 
 **แผนการจัดการ Position (Plan of Action):**
-- Take Profit: [แนะนำจุดปิดทำกำไร 50% หรือเวลาที่เหมาะสม]
+- Take Profit: [แนะนำจุดปิดทำกำไร 35% หรือ Quick TP 30% ใน 4 วันแรก]
 - Stop Loss: [แนะนำจุดตัดขาดทุนเมื่อราคาแตะ Strike หรือ 2x Premium]
 - Roll Plan: [จังหวะที่ควร Roll ขยายเวลา]
 
 **คำแนะนำการเปิดออเดอร์บน Binance:** (สรุปสิ่งที่ต้องเปิดใน Binance Options)`;
     } else {
-      prompt = `You are an expert BTC options trader specializing in short premium strategies (Short Strangle).
-Analyze this position and give a concise, actionable recommendation.
+      prompt = `You are an expert BTC options trader specializing in short premium strategies (Short Strangle, Short Put, Short Call).
+Analyze this active position and give a concise, actionable recommendation according to v3.0 Trading Rules (Take Profit 35%, Stop Loss 2x premium, Delta Warning 0.38, Defensive Mode 0.52, Action Level 0.65, DTE exit <= 2).
 
 MARKET DATA:
 - BTC Price: $${currentBtcPrice?.toLocaleString() ?? "unknown"}
@@ -80,9 +139,10 @@ Respond in Thai language. Format your response as:
 **เหตุผล:** (2-3 ประโยค อธิบายสถานะ position)
 
 **จุดเฝ้าระวัง:**
-- Delta trigger: [ค่า delta ที่ควร action]
-- TP: [% profit ที่ควร close]
-- SL: [loss ที่ควร cut]
+- Delta trigger: [Delta >= 0.38 เฝ้าระวัง, Delta >= 0.52 โหมดป้องกัน, Delta >= 0.65 แอ็กชัน]
+- TP: [กำไร >= 35% ปิดทันที]
+- SL: [ขาดทุนแตะ 2x Premium คัททันที]
+- DTE: [เหลือ <= 2 วัน ปิดทันที]
 
 **หากราคา BTC เคลื่อนไหว:**
 - ถ้าขึ้น: [แนะนำอะไร]
@@ -104,7 +164,7 @@ Respond in Thai language. Format your response as:
     } finally {
       setLoading(false);
     }
-  }, [isStrangleSetup]);
+  }, [strategy, isOpportunity]);
 
   // Run analysis only ONCE when modal is opened, not on every background 15s poll
   useEffect(() => {
@@ -143,18 +203,32 @@ Respond in Thai language. Format your response as:
             </span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            {isStrangleSetup ? (
+            {pos?.strategy === "SHORT_PUT" ? (
               <>
-                <Pill color={T.green}>SHORT STRANGLE</Pill>
+                <Pill color={T.green}>BULLISH SHORT PUT</Pill>
                 <span style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 12, fontWeight: 600 }}>
-                  P{fmtUSD(pos.putStrike)} / C{fmtUSD(pos.callStrike)}
+                  Strike {fmtUSD(pos.putStrike || pos.strike, 0)} ({pos.dte}d)
+                </span>
+              </>
+            ) : pos?.strategy === "SKEWED_STRANGLE" ? (
+              <>
+                <Pill color={T.blue}>SKEWED STRANGLE</Pill>
+                <span style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 12, fontWeight: 600 }}>
+                  P{fmtUSD(pos.putStrike, 0)} / C{fmtUSD(pos.callStrike, 0)} ({pos.dte}d)
+                </span>
+              </>
+            ) : pos?.strategy === "STRANGLE" ? (
+              <>
+                <Pill color={T.purple}>SHORT STRANGLE</Pill>
+                <span style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 12, fontWeight: 600 }}>
+                  P{fmtUSD(pos.putStrike, 0)} / C{fmtUSD(pos.callStrike, 0)} ({pos.dte}d)
                 </span>
               </>
             ) : (
               <>
                 <Pill color={isCall ? T.blue : T.amber}>{pos.type}</Pill>
                 <span style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 13, fontWeight: 600 }}>
-                  Strike {fmtUSD(pos.strike)}
+                  Strike {fmtUSD(pos.strike, 0)} ({pos.dte}d)
                 </span>
               </>
             )}

@@ -4,10 +4,10 @@ import { fmtUSD, pnlColor, deltaColor, statusColor } from "../utils.js";
 import { Pill } from "./Pill.jsx";
 
 // Grid column definition — shared between header and rows
-export const POSITION_GRID_COLS = "85px 90px 50px 65px 65px 60px 75px 85px 85px 65px";
-export const POSITION_MIN_WIDTH = 700;
+export const POSITION_GRID_COLS = "85px 90px 50px 65px 65px 60px 75px 85px 85px 115px";
+export const POSITION_MIN_WIDTH = 740;
 
-export function PositionRow({ pos, onAnalyze }) {
+export function PositionRow({ pos, onAnalyze, onOpenPayoff }) {
   const [hovered, setHovered] = useState(false);
   const isCall = pos.type.includes("Call");
   const profit = pos.premium > 0 ? ((pos.premium - pos.currentPrice) / pos.premium) * 100 : 0;
@@ -96,7 +96,31 @@ export function PositionRow({ pos, onAnalyze }) {
             {pos.status}
           </span>
         </div>
-        <div style={{ textAlign: "right" }}>
+        <div style={{ textAlign: "right", display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6 }}>
+          {onOpenPayoff && (
+            <button
+              id={`payoff-btn-${pos.id}`}
+              onClick={() => onOpenPayoff(pos)}
+              title="เปิด Payoff Simulator จำลองผลตอบแทน"
+              style={{
+                background: T.blueDim,
+                border: `1px solid ${T.blue}55`,
+                color: T.blue,
+                borderRadius: 5,
+                padding: "4px 7px",
+                cursor: "pointer",
+                fontFamily: T.fontSans,
+                fontSize: 11,
+                fontWeight: 700,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 3,
+                transition: "all 0.2s ease",
+              }}
+            >
+              <span>📈</span>
+            </button>
+          )}
           <button
             id={`analyze-btn-${pos.id}`}
             onClick={() => onAnalyze(pos)}
@@ -209,28 +233,54 @@ export function PositionRow({ pos, onAnalyze }) {
               </div>
             </div>
           </div>
-          <button
-            id={`analyze-btn-m-${pos.id}`}
-            onClick={(e) => { e.stopPropagation(); onAnalyze(pos); }}
-            style={{
-              background: T.greenDim,
-              border: `1px solid ${T.greenMid}`,
-              color: T.green,
-              borderRadius: 6,
-              padding: "7px 12px",
-              cursor: "pointer",
-              fontFamily: T.fontSans,
-              fontSize: 11,
-              fontWeight: 800,
-              letterSpacing: 0.5,
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              whiteSpace: "nowrap",
-            }}
-          >
-            🧠 AI ANALYZE
-          </button>
+
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            {onOpenPayoff && (
+              <button
+                id={`payoff-btn-m-${pos.id}`}
+                onClick={(e) => { e.stopPropagation(); onOpenPayoff(pos); }}
+                style={{
+                  background: T.blueDim,
+                  border: `1px solid ${T.blue}55`,
+                  color: T.blue,
+                  borderRadius: 6,
+                  padding: "7px 10px",
+                  cursor: "pointer",
+                  fontFamily: T.fontSans,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                📈 PAYOFF
+              </button>
+            )}
+            <button
+              id={`analyze-btn-m-${pos.id}`}
+              onClick={(e) => { e.stopPropagation(); onAnalyze(pos); }}
+              style={{
+                background: T.greenDim,
+                border: `1px solid ${T.greenMid}`,
+                color: T.green,
+                borderRadius: 6,
+                padding: "7px 12px",
+                cursor: "pointer",
+                fontFamily: T.fontSans,
+                fontSize: 11,
+                fontWeight: 800,
+                letterSpacing: 0.5,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                whiteSpace: "nowrap",
+              }}
+            >
+              🧠 AI
+            </button>
+          </div>
         </div>
       </div>
     </>

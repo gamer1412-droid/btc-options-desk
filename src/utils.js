@@ -20,23 +20,23 @@ export const fmtUSD = (n, dec = null) => {
 export const pnlColor = (v) => (v > 0 ? T.green : v < 0 ? T.red : T.textSecondary);
 export const deltaColor = (d) => {
   const a = Math.abs(d);
-  if (a >= 0.50) return T.red;
-  if (a >= 0.35) return T.amber;
+  if (a >= 0.52) return T.red;
+  if (a >= 0.38) return T.amber;
   return T.green;
 };
 export const statusColor = (s) => ({ healthy: T.green, warning: T.amber, danger: T.red, defensive: T.red }[s] ?? T.textSecondary);
 
-// ─── Position health classifier v2.0 ──────────────────────────────────────────
+// ─── Position health classifier v3.0 ──────────────────────────────────────────
 export function classify(pos) {
   const absDelta = Math.abs(pos.delta || 0);
   const dte = pos.dte ?? 999;
   const pnl = pos.pnl || 0;
   const premium = pos.premium || 0;
 
-  if ((premium > 0 && pnl < 0 && Math.abs(pnl) >= premium * 2.0) || dte <= 2 || absDelta >= 0.50) {
+  if ((premium > 0 && pnl < 0 && Math.abs(pnl) >= premium * 2.0) || dte <= 2 || absDelta >= 0.52) {
     return "danger";
   }
-  if (absDelta >= 0.35 || dte <= 4) {
+  if (absDelta >= 0.38 || dte <= 4) {
     return "warning";
   }
   return "healthy";

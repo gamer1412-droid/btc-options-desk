@@ -46,6 +46,28 @@ async function signedGet(base, path, params, apiKey, apiSecret) {
   return res.json();
 }
 
+async function fetchDeribitDvol() {
+  try {
+    const endTs = Date.now();
+    const startTs = endTs - 86400000;
+    const res = await fetch(`https://www.deribit.com/api/v2/public/get_volatility_index_data?currency=BTC&start_timestamp=${startTs}&end_timestamp=${endTs}&resolution=3600`, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(4500),
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const data = json.result?.data;
+    if (Array.isArray(data) && data.length > 0) {
+      const latest = data[data.length - 1]; // [ts, open, high, low, close]
+      const close = Number(latest[4]);
+      return Number.isFinite(close) ? Math.round(close * 10) / 10 : null;
+    }
+  } catch {
+    // Graceful fallback if Deribit API is temporarily unreachable
+  }
+  return null;
+}
+
 export default async function handler(req, res) {
   const allowedOrigin = process.env.ALLOWED_ORIGIN ?? "*";
   res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
@@ -71,10 +93,11 @@ export default async function handler(req, res) {
       }
 
       case "btcMarketContext": {
-        // Public endpoint — enough daily history for EMA50, ADX14 and realized volatility.
-        const [tickerRes, klinesRes] = await Promise.all([
+        // Public endpoint — enough daily history for EMA50, ADX14, realized volatility, and Deribit DVOL benchmark
+        const [tickerRes, klinesRes, deribitDvol] = await Promise.all([
           fetch(`${BINANCE_SPOT_BASE}/api/v3/ticker/24hr?symbol=BTCUSDT`),
           fetch(`${BINANCE_SPOT_BASE}/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=120`),
+          fetchDeribitDvol(),
         ]);
         if (!tickerRes.ok || !klinesRes.ok) throw new Error("Binance market context unavailable");
         const ticker = await tickerRes.json();
@@ -83,6 +106,10 @@ export default async function handler(req, res) {
         const change24h = parseFloat(ticker.priceChangePercent);
         const indicators = buildMarketIndicators(klines, currentPrice);
         const rounded = value => Number.isFinite(value) ? Math.round(value * 10) / 10 : null;
+
+        const vrp = (deribitDvol != null && indicators.realizedVol30 != null)
+          ? rounded(deribitDvol - indicators.realizedVol30)
+          : null;
 
         return res.status(200).json({
           price: currentPrice,
@@ -96,7 +123,14 @@ export default async function handler(req, res) {
           adx14: rounded(indicators.adx14),
           realizedVol7: rounded(indicators.realizedVol7),
           realizedVol30: rounded(indicators.realizedVol30),
+          dvol: deribitDvol,
+          vrp,
         });
+      }
+
+      case "dvol": {
+        const dvol = await fetchDeribitDvol();
+        return res.status(200).json({ dvol });
       }
 
       case "optionPositions": {
@@ -124,10 +158,35 @@ export default async function handler(req, res) {
       }
 
       case "optionMarks": {
-        // Public endpoint — mark price, greeks for all BTC option contracts
-        const r = await fetch(`${BINANCE_OPTIONS_BASE}/eapi/v1/mark?underlying=BTCUSDT`);
-        const data = await r.json();
-        return res.status(200).json(data);
+        // Public endpoint — mark price, Greeks, plus real bid/ask/volume merged from ticker
+        const [marksRes, tickersRes] = await Promise.all([
+          fetch(`${BINANCE_OPTIONS_BASE}/eapi/v1/mark?underlying=BTCUSDT`),
+          fetch(`${BINANCE_OPTIONS_BASE}/eapi/v1/ticker`).catch(() => null),
+        ]);
+        if (!marksRes.ok) throw new Error("Binance option marks unavailable");
+        const marks = await marksRes.json();
+
+        if (tickersRes && tickersRes.ok) {
+          const tickers = await tickersRes.json().catch(() => []);
+          if (Array.isArray(tickers) && tickers.length > 0) {
+            const tickerMap = new Map();
+            for (const t of tickers) {
+              if (t.symbol) tickerMap.set(t.symbol, t);
+            }
+            for (const m of marks) {
+              const t = tickerMap.get(m.symbol);
+              if (t) {
+                m.bidPrice = t.bidPrice;
+                m.askPrice = t.askPrice;
+                m.volume = t.volume;
+                m.amount = t.amount;
+                m.lastPrice = t.lastPrice;
+                m.priceChangePercent = t.priceChangePercent;
+              }
+            }
+          }
+        }
+        return res.status(200).json(marks);
       }
 
       case "optionOrders": {

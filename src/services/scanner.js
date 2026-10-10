@@ -64,6 +64,24 @@ export function determineOptimalMarketProfile(marketContext = {}, accountInfo = 
   };
 }
 
+// ─── Contract Liquidity & Delta Selection Helper ────────────────────────────
+export function pickBestContract(candidates, targetDelta, maxSpreadPct = 5) {
+  if (!candidates || candidates.length === 0) return null;
+  // Step 1: Prefer contracts with spread within maxSpreadPct
+  const liquid = candidates.filter(c => c.spreadPct == null || c.spreadPct <= maxSpreadPct);
+  const pool = liquid.length > 0 ? liquid : candidates;
+
+  // Step 2: Sort by target delta distance, breaking close ties with lower spread
+  return [...pool].sort((a, b) => {
+    const deltaDiffA = Math.abs(a.delta - targetDelta);
+    const deltaDiffB = Math.abs(b.delta - targetDelta);
+    if (Math.abs(deltaDiffA - deltaDiffB) < 0.02 && a.spreadPct != null && b.spreadPct != null) {
+      return a.spreadPct - b.spreadPct;
+    }
+    return deltaDiffA - deltaDiffB;
+  })[0];
+}
+
 // ─── Entry Signal Scanner v2.5 (Yield Boost & Adaptive Multi-Strategy) ─────────
 export function scanEntryOpportunities(
   marksData,
@@ -177,10 +195,10 @@ export function scanEntryOpportunities(
     const bidIv = bidIvRaw != null && Number.isFinite(bidIvRaw) ? (bidIvRaw <= 5 ? bidIvRaw * 100 : bidIvRaw) : null;
     const askIv = askIvRaw != null && Number.isFinite(askIvRaw) ? (askIvRaw <= 5 ? askIvRaw * 100 : askIvRaw) : null;
 
-    // Liquidity filter: skip illiquid contracts (only if data available)
+    // Liquidity filter: skip unexecutable contracts with extreme spread (> 15%)
+    // Contracts within 5-15% are retained as secondary fallback if tighter strikes are unavailable
     const liqCfg = cfg.liquidity || { maxSpreadPct: 5, minVolume: 1 };
-    if (spreadPct != null && spreadPct > liqCfg.maxSpreadPct) continue;
-    if (volume != null && Number.isFinite(volume) && volume < liqCfg.minVolume) continue;
+    if (spreadPct != null && spreadPct > (liqCfg.maxSpreadPct * 3)) continue;
 
     const expiry = new Date(expMs).toISOString().slice(0, 10);
     const isHeld = heldSymbols.has(m.symbol) || heldKeys.has(`${expiry}-${strike}-${parts[3]}`);
@@ -232,11 +250,11 @@ export function scanEntryOpportunities(
     // 1. STRATEGY: Bullish Short Put
     // ──────────────────────────────────────────────────────────────────────────
     const candidatePuts = puts
-      .filter(p => Math.abs(p.delta) >= (profile.deltaMin - 0.03) && Math.abs(p.delta) <= (profile.bullishPutMax + 0.03) && p.strike < btcPrice)
-      .sort((a, b) => Math.abs(a.delta - targetPutDelta) - Math.abs(b.delta - targetPutDelta));
+      .filter(p => Math.abs(p.delta) >= (profile.deltaMin - 0.03) && Math.abs(p.delta) <= (profile.bullishPutMax + 0.03) && p.strike < btcPrice);
+    const bestBullishPut = pickBestContract(candidatePuts, targetPutDelta, cfg.liquidity?.maxSpreadPct ?? 5);
 
-    if (candidatePuts.length > 0) {
-      const bestPut = candidatePuts[0];
+    if (bestBullishPut) {
+      const bestPut = bestBullishPut;
       const putPremium = Math.round(bestPut.markPrice);
       const putTheta = Math.round(Math.abs(bestPut.theta));
       const breakevenLow = Math.round(bestPut.strike - putPremium);
@@ -295,17 +313,14 @@ export function scanEntryOpportunities(
     // 2. STRATEGY: Skewed Strangle (Bullish Bias with Wide OTM Call)
     // ──────────────────────────────────────────────────────────────────────────
     const skewedPuts = puts
-      .filter(p => Math.abs(p.delta) >= profile.deltaMin && Math.abs(p.delta) <= (profile.bullishPutMax + 0.02) && p.strike < btcPrice)
-      .sort((a, b) => Math.abs(a.delta - targetPutDelta) - Math.abs(b.delta - targetPutDelta));
-
+      .filter(p => Math.abs(p.delta) >= profile.deltaMin && Math.abs(p.delta) <= (profile.bullishPutMax + 0.02) && p.strike < btcPrice);
     const wideCalls = calls
-      .filter(c => c.delta >= 0.07 && c.delta <= 0.15 && c.strike > btcPrice)
-      .sort((a, b) => Math.abs(a.delta - 0.11) - Math.abs(b.delta - 0.11));
+      .filter(c => c.delta >= 0.07 && c.delta <= 0.15 && c.strike > btcPrice);
 
-    if (skewedPuts.length > 0 && wideCalls.length > 0) {
-      const bestSkewPut = skewedPuts[0];
-      const bestSkewCall = wideCalls[0];
+    const bestSkewPut = pickBestContract(skewedPuts, targetPutDelta, cfg.liquidity?.maxSpreadPct ?? 5);
+    const bestSkewCall = pickBestContract(wideCalls, 0.11, cfg.liquidity?.maxSpreadPct ?? 5);
 
+    if (bestSkewPut && bestSkewCall) {
       const totalPremium = Math.round(bestSkewPut.markPrice + bestSkewCall.markPrice);
       const totalTheta = Math.round(Math.abs(bestSkewPut.theta) + Math.abs(bestSkewCall.theta));
       const breakevenLow = Math.round(bestSkewPut.strike - totalPremium);
@@ -380,17 +395,14 @@ export function scanEntryOpportunities(
     // 3. STRATEGY: Standard Short Strangle
     // ──────────────────────────────────────────────────────────────────────────
     const stdPuts = puts
-      .filter(p => Math.abs(p.delta) >= (profile.deltaMin - 0.02) && Math.abs(p.delta) <= (profile.deltaMax + 0.02) && p.strike < btcPrice)
-      .sort((a, b) => Math.abs(a.delta - targetPutDelta) - Math.abs(b.delta - targetPutDelta));
-
+      .filter(p => Math.abs(p.delta) >= (profile.deltaMin - 0.02) && Math.abs(p.delta) <= (profile.deltaMax + 0.02) && p.strike < btcPrice);
     const stdCalls = calls
-      .filter(c => c.delta >= (profile.deltaMin - 0.02) && c.delta <= (profile.deltaMax + 0.02) && c.strike > btcPrice)
-      .sort((a, b) => Math.abs(a.delta - targetCallDelta) - Math.abs(b.delta - targetCallDelta));
+      .filter(c => c.delta >= (profile.deltaMin - 0.02) && c.delta <= (profile.deltaMax + 0.02) && c.strike > btcPrice);
 
-    if (stdPuts.length > 0 && stdCalls.length > 0) {
-      const bestPut = stdPuts[0];
-      const bestCall = stdCalls[0];
+    const bestPut = pickBestContract(stdPuts, targetPutDelta, cfg.liquidity?.maxSpreadPct ?? 5);
+    const bestCall = pickBestContract(stdCalls, targetCallDelta, cfg.liquidity?.maxSpreadPct ?? 5);
 
+    if (bestPut && bestCall) {
       const totalPremium = Math.round(bestPut.markPrice + bestCall.markPrice);
       const totalTheta = Math.round(Math.abs(bestPut.theta) + Math.abs(bestCall.theta));
       const breakevenLow = Math.round(bestPut.strike - totalPremium);
@@ -458,11 +470,165 @@ export function scanEntryOpportunities(
         maxSpreadPct: [bestPut.spreadPct, bestCall.spreadPct].filter(v => v != null).length ? Math.max(...[bestPut.spreadPct, bestCall.spreadPct].filter(v => v != null)) : null,
         volume: Math.min(bestPut.volume ?? Infinity, bestCall.volume ?? Infinity) === Infinity ? null : Math.min(bestPut.volume ?? Infinity, bestCall.volume ?? Infinity),
       });
+
+      // ──────────────────────────────────────────────────────────────────────────
+      // 4. STRATEGY: Defined-Risk Iron Condor (Hedged Strangle with Outer Wings)
+      // ──────────────────────────────────────────────────────────────────────────
+      const wingPuts = puts
+        .filter(p => p.strike < bestPut.strike && Math.abs(p.delta) >= 0.05 && Math.abs(p.delta) <= 0.14);
+      const wingCalls = calls
+        .filter(c => c.strike > bestCall.strike && c.delta >= 0.05 && c.delta <= 0.14);
+
+      const longPut = pickBestContract(wingPuts, -0.09, cfg.liquidity?.maxSpreadPct ?? 8);
+      const longCall = pickBestContract(wingCalls, 0.09, cfg.liquidity?.maxSpreadPct ?? 8);
+
+      if (longPut && longCall) {
+        const shortCredit = bestPut.markPrice + bestCall.markPrice;
+        const longDebit = longPut.markPrice + longCall.markPrice;
+        const netCredit = Math.round(shortCredit - longDebit);
+
+        const putWingWidth = bestPut.strike - longPut.strike;
+        const callWingWidth = longCall.strike - bestCall.strike;
+        const maxLossPerBtc = Math.max(putWingWidth, callWingWidth) - netCredit;
+
+        if (netCredit > 40 && maxLossPerBtc > 0) {
+          const returnOnRiskPct = ((netCredit / maxLossPerBtc) * 100).toFixed(1);
+          const annualizedYield = dte > 0 ? Math.round((Number(returnOnRiskPct) * (365 / dte))) : 0;
+          const netTheta = Math.round((Math.abs(bestPut.theta) + Math.abs(bestCall.theta)) - (Math.abs(longPut.theta) + Math.abs(longCall.theta)));
+          const condorScore = baseDTEScore + (netCredit / 8) + (annualizedYield / 3) + 20; // +20 safety bonus for capped risk
+
+          results.push({
+            id: `IRON_CONDOR-${longPut.symbol}_${bestPut.symbol}_${bestCall.symbol}_${longCall.symbol}`,
+            strategy: "IRON_CONDOR",
+            strategyName: "DEFINED-RISK IRON CONDOR",
+            badgeText: "IRON CONDOR (CAPPED)",
+            badgeColor: "#38bdf8",
+            expiry,
+            dte,
+            btcPrice: Math.round(btcPrice),
+            put: bestPut,
+            call: bestCall,
+            longPut,
+            longCall,
+            putStrike: bestPut.strike,
+            callStrike: bestCall.strike,
+            longPutStrike: longPut.strike,
+            longCallStrike: longCall.strike,
+            putDelta: bestPut.delta.toFixed(2),
+            callDelta: bestCall.delta.toFixed(2),
+            longPutDelta: longPut.delta.toFixed(2),
+            longCallDelta: longCall.delta.toFixed(2),
+            putMark: bestPut.markPrice,
+            callMark: bestCall.markPrice,
+            longPutMark: longPut.markPrice,
+            longCallMark: longCall.markPrice,
+            totalPremium: netCredit,
+            netCredit,
+            maxRisk: maxLossPerBtc,
+            putWingWidth,
+            callWingWidth,
+            totalTheta: Math.max(0, netTheta),
+            breakevenLow: Math.round(bestPut.strike - netCredit),
+            breakevenHigh: Math.round(bestCall.strike + netCredit),
+            putDistancePct,
+            callDistancePct,
+            returnOnMarginPct: returnOnRiskPct,
+            returnOnRiskPct,
+            annualizedYield,
+            marketIv: marketIv ?? Math.round((bestPut.iv + bestCall.iv) / 2),
+            ivRank: realIvRank,
+            ivPercentile: realIvPercentile,
+            ivHistoryCount: ivHistoryStats?.count ?? 0,
+            premiumPerBtc: netCredit,
+            expiryDate: expiry,
+            putLeg: bestPut,
+            callLeg: bestCall,
+            longPutLeg: longPut,
+            longCallLeg: longCall,
+            isPreferredDTE,
+            isIdealDTE,
+            isPutHeld,
+            isCallHeld,
+            isFullyHeld: isPutHeld && isCallHeld && Boolean(longPut.isHeld) && Boolean(longCall.isHeld),
+            isPartiallyHeld: isPutHeld || isCallHeld || Boolean(longPut.isHeld) || Boolean(longCall.isHeld),
+            score: condorScore,
+            spreadPct: Math.max(bestPut.spreadPct ?? 0, bestCall.spreadPct ?? 0, longPut.spreadPct ?? 0, longCall.spreadPct ?? 0) || null,
+            maxSpreadPct: Math.max(...[bestPut.spreadPct, bestCall.spreadPct, longPut.spreadPct, longCall.spreadPct].filter(v => v != null)),
+          });
+        }
+      }
     }
   }
 
   return results
-    .filter(opportunity => regime.allowedStrategies.includes(opportunity.strategy))
+    .filter(opportunity => {
+      if (regime.allowedStrategies.includes(opportunity.strategy)) return true;
+      if (opportunity.strategy === "IRON_CONDOR" && regime.allowedStrategies.includes("STRANGLE")) return true;
+      return false;
+    })
     .map(opportunity => ({ ...opportunity, marketRegime: regime.regime, regimeConfidence: regime.confidence }))
     .sort((a, b) => b.score - a.score);
+}
+
+/**
+ * Calculate Max Pain Strike & Strike Clustering across options chain
+ */
+export function calculateMaxPain(marksData = [], btcPrice = 0) {
+  if (!Array.isArray(marksData) || marksData.length === 0 || btcPrice <= 0) {
+    return { available: false, maxPainStrike: null, distancePct: null };
+  }
+
+  const minSpot = btcPrice * 0.65;
+  const maxSpot = btcPrice * 1.45;
+
+  const strikeMap = new Map();
+  for (const m of marksData) {
+    const parts = m.symbol?.split("-") || [];
+    const strike = Number(m.strikePrice) || Number(parts[2]);
+    if (!strike || strike < minSpot || strike > maxSpot) continue;
+
+    const optType = parts[3] === "C" ? "C" : parts[3] === "P" ? "P" : (m.symbol?.endsWith("-C") ? "C" : (m.symbol?.endsWith("-P") ? "P" : null));
+    if (!optType) continue;
+
+    const weight = Number(m.sumOpenInterest ?? m.openInterest ?? m.volume ?? 1);
+    const validWeight = (Number.isFinite(weight) && weight > 0) ? weight : 1;
+
+    if (!strikeMap.has(strike)) {
+      strikeMap.set(strike, { callWeight: 0, putWeight: 0, strike });
+    }
+    const entry = strikeMap.get(strike);
+    if (optType === "C") entry.callWeight += validWeight;
+    else entry.putWeight += validWeight;
+  }
+
+  const strikes = Array.from(strikeMap.keys()).sort((a, b) => a - b);
+  if (strikes.length < 3) {
+    return { available: false, maxPainStrike: null, distancePct: null };
+  }
+
+  let minPain = Infinity;
+  let maxPainStrike = strikes[0];
+
+  for (const targetPrice of strikes) {
+    let totalPainAtTarget = 0;
+    for (const [s, { callWeight, putWeight }] of strikeMap.entries()) {
+      if (targetPrice > s) totalPainAtTarget += (targetPrice - s) * callWeight;
+      if (targetPrice < s) totalPainAtTarget += (s - targetPrice) * putWeight;
+    }
+    if (totalPainAtTarget < minPain) {
+      minPain = totalPainAtTarget;
+      maxPainStrike = targetPrice;
+    }
+  }
+
+  const distancePct = Math.round(((maxPainStrike - btcPrice) / btcPrice) * 1000) / 10;
+
+  return {
+    available: true,
+    maxPainStrike,
+    distancePct,
+    formattedMaxPain: `$${maxPainStrike.toLocaleString()}`,
+    isBelowSpot: maxPainStrike < btcPrice,
+    isAboveSpot: maxPainStrike > btcPrice,
+  };
 }

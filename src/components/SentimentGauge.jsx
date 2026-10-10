@@ -3,8 +3,12 @@ import { T } from "../tokens.js";
 
 export const SentimentGauge = memo(function SentimentGauge({
   marketIv = null,
+  ivRank = null,
+  ivPercentile = null,
   distFromMA20 = null,
   netDelta = 0,
+  dvol = null,
+  vrp = null,
 }) {
   const hasIV = marketIv != null && Number.isFinite(Number(marketIv));
   const safeIV = hasIV ? Math.max(0, Math.min(100, Number(marketIv))) : 0;
@@ -20,6 +24,14 @@ export const SentimentGauge = memo(function SentimentGauge({
     : safeIV <= 70
     ? { label: "OPTIMAL ZONE ★", color: T.green, desc: "Theta Harvest สมบูรณ์แบบ" }
     : { label: "HIGH VOL SURGE ⚡", color: T.purple, desc: "Premium สูง ลด Lot Size 50%" };
+
+  // Net Delta posture
+  const absDelta = Math.abs(netDelta || 0);
+  const deltaPosture = absDelta < 0.05
+    ? { text: "⚖️ Delta Neutral", color: T.green, deltaStr: (netDelta >= 0 ? "+" : "") + Number(netDelta).toFixed(2) }
+    : netDelta > 0
+    ? { text: "🐂 Bullish Bias", color: T.blue, deltaStr: "+" + Number(netDelta).toFixed(2) }
+    : { text: "🐻 Bearish Bias", color: T.amber, deltaStr: Number(netDelta).toFixed(2) };
 
   return (
     <div
@@ -41,20 +53,56 @@ export const SentimentGauge = memo(function SentimentGauge({
         <span style={{ color: T.textSecondary, fontSize: 10, letterSpacing: 1.5, fontFamily: T.fontSans, fontWeight: 700 }}>
           VOLATILITY SPEEDOMETER
         </span>
-        <span
-          style={{
-            background: `${ivStatus.color}20`,
-            color: ivStatus.color,
-            border: `1px solid ${ivStatus.color}40`,
-            borderRadius: 4,
-            padding: "2px 6px",
-            fontSize: 9,
-            fontWeight: 800,
-            fontFamily: T.font,
-          }}
-        >
-          {ivStatus.label}
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+          {dvol != null && (
+            <span
+              style={{
+                background: `${T.purple}18`,
+                color: T.purple,
+                border: `1px solid ${T.purple}40`,
+                borderRadius: 4,
+                padding: "2px 5px",
+                fontSize: 9,
+                fontWeight: 800,
+                fontFamily: T.font,
+              }}
+              title={`Deribit 30D Constant Maturity Volatility Index: ${dvol}%${vrp != null ? ` | Vol Risk Premium: ${vrp > 0 ? "+" : ""}${vrp}%` : ""}`}
+            >
+              DVOL {dvol}%
+            </span>
+          )}
+          {ivRank != null && (
+            <span
+              style={{
+                background: `${T.blue}18`,
+                color: T.blue,
+                border: `1px solid ${T.blue}40`,
+                borderRadius: 4,
+                padding: "2px 5px",
+                fontSize: 9,
+                fontWeight: 800,
+                fontFamily: T.font,
+              }}
+              title={`90-Day Rolling IV Rank: ${ivRank}%${ivPercentile != null ? ` | IV Percentile: ${ivPercentile}%` : ""}`}
+            >
+              IVR {ivRank}%
+            </span>
+          )}
+          <span
+            style={{
+              background: `${ivStatus.color}20`,
+              color: ivStatus.color,
+              border: `1px solid ${ivStatus.color}40`,
+              borderRadius: 4,
+              padding: "2px 6px",
+              fontSize: 9,
+              fontWeight: 800,
+              fontFamily: T.font,
+            }}
+          >
+            {ivStatus.label}
+          </span>
+        </div>
       </div>
 
       {/* SVG Semicircle Dial */}
@@ -130,13 +178,37 @@ export const SentimentGauge = memo(function SentimentGauge({
       </div>
 
       {/* Subtext info */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `1px solid ${T.border}`, paddingTop: 6, marginTop: 4 }}>
-        <span style={{ color: T.textMuted, fontSize: 10, fontFamily: T.fontSans }}>
-          {ivStatus.desc}
-        </span>
-        <span style={{ color: T.textSecondary, fontSize: 10, fontFamily: T.font }}>
-          MA20: <strong style={{ color: distFromMA20 == null ? T.textMuted : distFromMA20 >= 0 ? T.green : T.red }}>{distFromMA20 == null ? "N/A" : `${distFromMA20 > 0 ? "+" : ""}${distFromMA20}%`}</strong>
-        </span>
+      <div style={{ display: "flex", flexDirection: "column", gap: 5, borderTop: `1px solid ${T.border}`, paddingTop: 6, marginTop: 4 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ color: T.textMuted, fontSize: 10, fontFamily: T.fontSans }}>
+            {ivStatus.desc}
+          </span>
+          <span style={{ color: T.textSecondary, fontSize: 10, fontFamily: T.font }}>
+            MA20: <strong style={{ color: distFromMA20 == null ? T.textMuted : distFromMA20 >= 0 ? T.green : T.red }}>{distFromMA20 == null ? "N/A" : `${distFromMA20 > 0 ? "+" : ""}${distFromMA20}%`}</strong>
+          </span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 4, borderTop: `1px dashed ${T.border}` }}>
+          <span style={{ color: T.textMuted, fontSize: 9.5, fontFamily: T.fontSans }}>
+            Net Delta: <strong style={{ color: deltaPosture.color, fontFamily: T.font }}>{deltaPosture.deltaStr} Δ</strong>
+          </span>
+          <span style={{ color: deltaPosture.color, fontSize: 9.5, fontWeight: 700, fontFamily: T.fontSans }}>
+            {deltaPosture.text}
+          </span>
+        </div>
+        {dvol != null && (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 4, borderTop: `1px dashed ${T.border}` }}>
+            <span style={{ color: T.textMuted, fontSize: 9.5, fontFamily: T.fontSans }}>
+              Deribit DVOL / VRP:
+            </span>
+            <span style={{ color: T.purple, fontSize: 9.5, fontWeight: 700, fontFamily: T.font }}>
+              {dvol}% {vrp != null && (
+                <span style={{ color: vrp >= 0 ? T.green : T.red }}>
+                  ({vrp > 0 ? "+" : ""}{vrp}% {vrp >= 0 ? "Rich" : "Cheap"})
+                </span>
+              )}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

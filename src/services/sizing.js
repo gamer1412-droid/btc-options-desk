@@ -95,27 +95,125 @@ const LOT_SIZES = [0.01, 0.02, 0.03, 0.05, 0.10, 0.20, 0.50, 1.0];
 
 export function calculatePortfolioStress(currentPositions = [], btcPrice = 0, equity = 0) {
   if (!Array.isArray(currentPositions) || currentPositions.length === 0 || btcPrice <= 0 || equity <= 0) {
-    return { available: false, scenarios: [], worstLoss: null, worstLossPct: null };
+    return { available: false, scenarios: [], worstLoss: null, worstLossPct: null, worstSpotLoss: null, worstSpotLossPct: null };
   }
 
   const hasGreeks = currentPositions.every(p => Number.isFinite(Number(p.positionDelta)) && Number.isFinite(Number(p.positionGamma)));
-  if (!hasGreeks) return { available: false, scenarios: [], worstLoss: null, worstLossPct: null };
+  if (!hasGreeks) return { available: false, scenarios: [], worstLoss: null, worstLossPct: null, worstSpotLoss: null, worstSpotLossPct: null };
 
-  const scenarios = [-20, -10, -5, 5, 10, 20].map(movePct => {
+  // Multi-dimensional Spot & Implied Volatility Coupled Stress Matrix:
+  // -20% spot: IV explodes +25 vol pts
+  // -10% spot: IV jumps +12 vol pts
+  // -5% spot:  IV rises +5 vol pts
+  // +5% spot:  IV contracts -2 vol pts
+  // +10% spot: IV contracts -4 vol pts
+  // +20% spot: Extreme upside call frenzy, IV expands +10 vol pts
+  const scenarioDefs = [
+    { movePct: -20, ivShock: 25 },
+    { movePct: -10, ivShock: 12 },
+    { movePct: -5,  ivShock: 5 },
+    { movePct: 5,   ivShock: -2 },
+    { movePct: 10,  ivShock: -4 },
+    { movePct: 20,  ivShock: 10 },
+  ];
+
+  const scenarios = scenarioDefs.map(({ movePct, ivShock }) => {
     const spotMove = btcPrice * (movePct / 100);
-    const estimatedPnl = currentPositions.reduce((sum, p) => {
-      return sum + Number(p.positionDelta) * spotMove + 0.5 * Number(p.positionGamma) * spotMove * spotMove;
-    }, 0);
-    return { movePct, estimatedPnl: Math.round(estimatedPnl * 100) / 100 };
+    let spotPnl = 0;
+    let vegaPnl = 0;
+
+    for (const p of currentPositions) {
+      const delta = Number(p.positionDelta) || 0;
+      const gamma = Number(p.positionGamma) || 0;
+      const vega = Number(p.positionVega) || 0;
+
+      spotPnl += delta * spotMove + 0.5 * gamma * spotMove * spotMove;
+      vegaPnl += vega * ivShock;
+    }
+
+    const combinedPnl = spotPnl + vegaPnl;
+    return {
+      movePct,
+      ivShock,
+      spotPnl: Math.round(spotPnl * 100) / 100,
+      vegaPnl: Math.round(vegaPnl * 100) / 100,
+      estimatedPnl: Math.round(combinedPnl * 100) / 100,
+      combinedPnl: Math.round(combinedPnl * 100) / 100,
+    };
   });
+
   const worstPnl = Math.min(...scenarios.map(s => s.estimatedPnl));
   const worstLoss = Math.max(0, -worstPnl);
+  const worstSpotPnl = Math.min(...scenarios.map(s => s.spotPnl));
+  const worstSpotLoss = Math.max(0, -worstSpotPnl);
+
   return {
     available: true,
-    method: "delta-gamma spot shock (excludes IV/skew/liquidity)",
+    method: "multi-dimensional spot-gamma + vega shock matrix",
     scenarios,
     worstLoss: Math.round(worstLoss * 100) / 100,
     worstLossPct: Math.round((worstLoss / equity) * 1000) / 10,
+    worstSpotLoss: Math.round(worstSpotLoss * 100) / 100,
+    worstSpotLossPct: Math.round((worstSpotLoss / equity) * 1000) / 10,
+  };
+}
+
+/**
+ * Dynamic Delta Hedging Assistant:
+ * Calculates required position in BTCUSDT Perpetual Futures to neutralize portfolio delta back to 0.00.
+ */
+export function calculateDeltaHedge(currentPositions = [], btcPrice = 0) {
+  if (!Array.isArray(currentPositions) || currentPositions.length === 0 || btcPrice <= 0) {
+    return {
+      available: false,
+      netDelta: 0,
+      hedgeAction: "NONE",
+      hedgeQtyBtc: 0,
+      hedgeNotionalUsd: 0,
+      urgency: "NEUTRAL",
+      statusText: "ไม่มี Position เปิดอยู่",
+      badgeColor: "green",
+    };
+  }
+
+  const netDelta = currentPositions.reduce((sum, p) => sum + (Number(p.positionDelta) || 0), 0);
+  const roundedNetDelta = Math.round(netDelta * 1000) / 1000;
+  const absDelta = Math.abs(roundedNetDelta);
+
+  // If netDelta > 0, portfolio is LONG delta -> need to SHORT BTC Perp to neutralize
+  // If netDelta < 0, portfolio is SHORT delta -> need to BUY (LONG) BTC Perp to neutralize
+  const hedgeAction = roundedNetDelta > 0.005 ? "SHORT" : roundedNetDelta < -0.005 ? "LONG" : "NEUTRAL";
+  const hedgeQtyBtc = Math.round(absDelta * 100) / 100; // 2 decimal precision (0.01 BTC lot)
+  const hedgeNotionalUsd = Math.round(hedgeQtyBtc * btcPrice);
+
+  const warnThreshold = STRATEGY_CONFIG.portfolioDelta?.warningThreshold ?? 0.18;
+  const hardLimit = STRATEGY_CONFIG.portfolioDelta?.hardLimit ?? 0.25;
+
+  let urgency = "NEUTRAL";
+  let statusText = "พอร์ตอยู่ในสภาวะ Delta Neutral (สมดุลปลอดภัย)";
+  let badgeColor = "green";
+
+  if (absDelta >= hardLimit) {
+    urgency = "HEDGE_REQUIRED";
+    statusText = `🚨 Delta พอร์ตเอียงสูง (${roundedNetDelta > 0 ? "+" : ""}${roundedNetDelta}) แนะนำเปิด ${hedgeAction} ${hedgeQtyBtc} BTC บน BTCUSDT Perp ทันที`;
+    badgeColor = "red";
+  } else if (absDelta >= warnThreshold) {
+    urgency = "CAUTION";
+    statusText = `⚠️ Delta พอร์ตเริ่มเอียง (${roundedNetDelta > 0 ? "+" : ""}${roundedNetDelta}) ควรพิจารณา ${hedgeAction} ${hedgeQtyBtc} BTC บน BTCUSDT Perp`;
+    badgeColor = "amber";
+  }
+
+  return {
+    available: true,
+    netDelta: roundedNetDelta,
+    hedgeAction,
+    hedgeQtyBtc,
+    hedgeNotionalUsd,
+    urgency,
+    statusText,
+    badgeColor,
+    instrument: "BTCUSDT Perpetual Futures",
+    targetDelta: 0.0,
   };
 }
 

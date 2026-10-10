@@ -272,15 +272,15 @@ export function AlertSettingsModal({
           {toggleRow(
             "warningDefense",
             "⚠️ Early Defense (เฝ้าระวังและเตรียมตัว)",
-            "Delta >= 0.35 (เฝ้าระวัง) และ Delta >= 0.50 (Defensive Mode เตรียม Roll)",
+            "Delta >= 0.38 (เฝ้าระวัง) และ Delta >= 0.52 (Defensive Mode เตรียม Roll)",
             "⚠️",
             T.amber
           )}
 
           {toggleRow(
             "takeProfit",
-            "🎯 Take Profit 50% Target",
-            "กำไรถึงเป้าหมาย 50% ของ Premium รับ — แนะนำปิดล็อกกำไรตามวินัย",
+            "🎯 Take Profit 35% Target",
+            "กำไรถึงเป้าหมาย 35% ของ Premium รับ — ปิดล็อกกำไรเพื่อปลดล็อก Margin หมุนรอบเร็ว",
             "🎯",
             T.green
           )}

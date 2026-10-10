@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { T } from "./tokens.js";
 import { fmtUSD, pnlColor } from "./utils.js";
 import { mapBinancePosition } from "./services/binance.js";
@@ -14,12 +14,12 @@ import {
   ALERT_STORAGE_KEY,
   ENTRY_STORAGE_KEY,
 } from "./services/alerts.js";
-import { scanEntryOpportunities, determineOptimalMarketProfile } from "./services/scanner.js";
-import { parseAccountInfo, calculatePortfolioCapacity } from "./services/sizing.js";
+import { scanEntryOpportunities, determineOptimalMarketProfile, calculateMaxPain } from "./services/scanner.js";
+import { parseAccountInfo, calculatePortfolioCapacity, calculateDeltaHedge } from "./services/sizing.js";
 import { loadPaperTrades } from "./services/paperTrading.js";
 import { SoundFX } from "./services/soundFx.js";
 import { classifyMarketRegime, stabilizeMarketRegime } from "./services/marketRegime.js";
-import { recordIv, getIvRank, getIvPercentile } from "./services/ivHistory.js";
+import { recordIv, getIvRank, getIvPercentile, ensureBackfilledHistory } from "./services/ivHistory.js";
 
 import { MetricCard } from "./components/MetricCard.jsx";
 import { Pill } from "./components/Pill.jsx";
@@ -99,6 +99,15 @@ export default function App() {
     refreshPaperCount();
   }, [refreshPaperCount, paperModalOpen]);
 
+  // First-visit onboarding check
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("onboarding_done") !== "true") {
+        setShowOnboarding(true);
+      }
+    } catch {}
+  }, []);
+
   const handleUnlock = (e) => {
     e.preventDefault();
     if (tokenInput === REQUIRED_TOKEN) {
@@ -167,7 +176,7 @@ export default function App() {
           currentMarketIv = Math.round(avgIV * 100);
           setMarketIv(currentMarketIv);
           // Record IV history for Rank / Percentile (rolling 90-day, capped at 90)
-          try { recordIv(currentMarketIv); } catch {}
+          try { recordIv(currentMarketIv); ensureBackfilledHistory(currentMarketIv); } catch {}
         }
       }
 
@@ -196,6 +205,8 @@ export default function App() {
         marketIv: currentMarketIv,
         ivRank: derivedIvRank,
         ivPercentile: derivedIvPercentile,
+        dvol: marketData.dvol ?? null,
+        vrp: marketData.vrp ?? null,
       };
       const candidateRegime = classifyMarketRegime(updatedMarketContext);
       regimeStateRef.current = stabilizeMarketRegime(candidateRegime, regimeStateRef.current, 3);
@@ -297,6 +308,8 @@ export default function App() {
               ? "short_put_signal"
               : signal.strategy === "SKEWED_STRANGLE"
               ? "skewed_strangle_signal"
+              : signal.strategy === "IRON_CONDOR"
+              ? "iron_condor_signal"
               : "strangle_signal";
             sendTelegram(signalType, signal);
           }
@@ -346,6 +359,8 @@ export default function App() {
   const totalTheta = positions.reduce((s, p) => s + (Math.abs(p.theta) * (p.size || 1)), 0);
   const warnings   = positions.filter(p => p.status === "warning" || p.status === "danger").length;
   const capacity   = calculatePortfolioCapacity(accountInfo, positions, btcPrice, marketContext, opportunities);
+  const maxPain    = useMemo(() => calculateMaxPain(optionMarks, btcPrice), [optionMarks, btcPrice]);
+  const deltaHedge = useMemo(() => calculateDeltaHedge(positions, btcPrice), [positions, btcPrice]);
   const hasPositionData = dataStatus === "live" || dataStatus === "partial";
 
   const tabStyle = (t) => ({
@@ -509,6 +524,26 @@ export default function App() {
                 v3.0
               </span>
             </button>
+            <button
+              id="guide-toggle"
+              onClick={() => {
+                SoundFX.playClick();
+                setShowOnboarding(true);
+              }}
+              title="Setup Guide & Options Desk Rules"
+              style={{
+                background: T.bg2,
+                border: `1px solid ${T.border}`,
+                color: T.textSecondary,
+                borderRadius: 6, padding: "5px 10px", cursor: "pointer",
+                fontFamily: T.fontSans, fontSize: 11, fontWeight: 700, letterSpacing: 0.5,
+                display: "flex", alignItems: "center", gap: 5,
+                transition: "all 0.2s ease",
+              }}
+            >
+              <span>❓</span>
+              <span>GUIDE</span>
+            </button>
           </div>
 
           {REQUIRED_TOKEN && (
@@ -566,8 +601,12 @@ export default function App() {
         <div style={{ flex: "1 1 260px", minWidth: 260 }}>
           <SentimentGauge
             marketIv={marketIv}
+            ivRank={marketContext.ivRank}
+            ivPercentile={marketContext.ivPercentile}
             distFromMA20={marketContext.distFromMA20}
             netDelta={positions.reduce((s, p) => s + (p.positionDelta ?? ((p.delta || 0) * (p.size || 1))), 0)}
+            dvol={marketContext.dvol}
+            vrp={marketContext.vrp}
           />
         </div>
       </div>
@@ -641,6 +680,7 @@ export default function App() {
             accountInfo={accountInfo}
             currentPositions={positions}
             optimalProfile={optimalProfile}
+            maxPain={maxPain}
             onAnalyzeStrangle={setAnalyzing}
             onOpenPayoff={(setup) => setPayoffSetup(setup)}
             onOpenPaperTrade={() => refreshPaperCount()}
@@ -659,25 +699,106 @@ export default function App() {
             <div style={{ padding: 40, textAlign: "center", color: T.textMuted, fontFamily: T.font, fontSize: 12 }}>ไม่มี open positions ในขณะนี้</div>
           ) : (
             <>
+              {deltaHedge && deltaHedge.available && (
+                <div style={{
+                  margin: "0 24px 16px",
+                  padding: "12px 18px",
+                  background: deltaHedge.urgency === "HEDGE_REQUIRED"
+                    ? `linear-gradient(135deg, ${T.redDim}, ${T.bg2})`
+                    : deltaHedge.urgency === "CAUTION"
+                    ? `linear-gradient(135deg, ${T.amberDim}, ${T.bg2})`
+                    : `linear-gradient(135deg, ${T.bg2}, ${T.bg1})`,
+                  border: `1px solid ${
+                    deltaHedge.urgency === "HEDGE_REQUIRED"
+                      ? T.red
+                      : deltaHedge.urgency === "CAUTION"
+                      ? T.amber
+                      : T.border
+                  }`,
+                  borderRadius: 10,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: 12,
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 18 }}>
+                      {deltaHedge.urgency === "HEDGE_REQUIRED" ? "🚨" : deltaHedge.urgency === "CAUTION" ? "⚠️" : "⚖️"}
+                    </span>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{
+                          fontFamily: T.font,
+                          fontWeight: 800,
+                          fontSize: 12,
+                          color: deltaHedge.urgency === "HEDGE_REQUIRED" ? T.red : deltaHedge.urgency === "CAUTION" ? T.amber : T.green,
+                          letterSpacing: 1,
+                        }}>
+                          DELTA HEDGING ASSISTANT: {deltaHedge.urgency}
+                        </span>
+                        <span style={{
+                          background: T.bg1,
+                          border: `1px solid ${T.border}`,
+                          borderRadius: 4,
+                          padding: "1px 6px",
+                          fontFamily: T.font,
+                          fontSize: 11,
+                          color: T.textPrimary,
+                        }}>
+                          Net {deltaHedge.netDelta > 0 ? "+" : ""}{deltaHedge.netDelta} Δ
+                        </span>
+                      </div>
+                      <div style={{ color: T.textSecondary, fontSize: 11, fontFamily: T.fontSans, marginTop: 3 }}>
+                        {deltaHedge.statusText}
+                      </div>
+                    </div>
+                  </div>
+
+                  {deltaHedge.hedgeAction !== "NEUTRAL" && deltaHedge.hedgeQtyBtc > 0 && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{
+                        background: deltaHedge.hedgeAction === "SHORT" ? `${T.red}25` : `${T.green}25`,
+                        color: deltaHedge.hedgeAction === "SHORT" ? T.red : T.green,
+                        border: `1px solid ${deltaHedge.hedgeAction === "SHORT" ? T.red : T.green}60`,
+                        borderRadius: 6,
+                        padding: "5px 10px",
+                        fontFamily: T.font,
+                        fontSize: 11,
+                        fontWeight: 800,
+                      }}>
+                        REBALANCE: {deltaHedge.hedgeAction} {deltaHedge.hedgeQtyBtc} BTCUSDT PERP
+                      </span>
+                      {deltaHedge.hedgeNotionalUsd > 0 && (
+                        <span style={{ color: T.textMuted, fontSize: 10, fontFamily: T.font }}>
+                          (~${deltaHedge.hedgeNotionalUsd.toLocaleString()})
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
                 <div
                   className="positions-header-desktop"
                   style={{
                     display: "grid", gridTemplateColumns: POSITION_GRID_COLS,
                     gap: 0, padding: "8px 16px", background: T.bg1,
-                    borderBottom: `1px solid ${T.border}`, minWidth: 690,
+                    borderBottom: `1px solid ${T.border}`, minWidth: 740,
                   }}
                 >
                   {["TYPE", "STRIKE", "DTE", "DELTA", "THETA", "IV", "RECEIVED", "P&L", "STATUS", ""].map(h => (
                     <span key={h} style={{ color: T.textMuted, fontSize: 9, letterSpacing: 2, fontFamily: T.font }}>{h}</span>
                   ))}
                 </div>
-                <div style={{ minWidth: 690 }} className="positions-rows-desktop">
+                <div style={{ minWidth: 740 }} className="positions-rows-desktop">
                   {positions.map(pos => (
                     <PositionRow
                       key={pos.id}
                       pos={pos}
                       onAnalyze={setAnalyzing}
+                      onOpenPayoff={(setup) => setPayoffSetup(setup)}
                     />
                   ))}
                 </div>
@@ -707,16 +828,16 @@ export default function App() {
               title: "1. RISK & YIELD PROFILES (เลือกระดับผลตอบแทนตามสภาวะตลาด)",
               color: T.green,
               items: [
-                "🛡️ CONSERVATIVE: Delta 0.15–0.18 | DTE 18–25 วัน | TP 50% | เน้นระยะห่าง Strike และลด Gamma Risk",
-                "⚡ BALANCED ALPHA: Delta 0.20–0.24 | DTE 12–20 วัน | TP 50% | ความเสี่ยงและ Premium ระดับกลาง",
-                "🔥 HIGH YIELD HUNTER: Delta 0.25–0.28 | DTE 7–14 วัน | TP 50% | Premium สูงขึ้นพร้อม Gamma/Tail Risk ที่สูงขึ้น",
+                "🛡️ CONSERVATIVE: Delta 0.14–0.19 | DTE 18–25 วัน | TP 50% | เน้นระยะห่าง Strike และลด Gamma Risk",
+                "⚡ BALANCED ALPHA (Theta Fast): Delta 0.18–0.25 | DTE 10–16 วัน | TP 35% | Theta ละลายไว ปิดเร็วหมุนเร็ว (ใช้จริงตอนนี้)",
+                "🔥 HIGH YIELD HUNTER: Delta 0.23–0.30 | DTE 7–14 วัน | TP 50% | Premium สูงพร้อม Gamma/Tail Risk สูงขึ้น",
               ],
             },
             {
               title: "2. FAST THETA DECAY & DYNAMIC TP (การเร่งรอบหมุนเงินทุน)",
               color: T.blue,
               items: [
-                "Dynamic Take Profit: ปิดทำกำไรเมื่อถึงเป้าหมาย 50% เพื่อปลดล็อค Margin ไปเปิดสัญญาใหม่",
+                "Dynamic Take Profit: ปิดทำกำไรเมื่อถึงเป้าหมาย 35% เพื่อปลดล็อค Margin ไปเปิดสัญญาใหม่ (หมุนเร็วขึ้น 30%)",
                 "Quick TP Velocity: ปิดทำกำไรเมื่อได้ 30% ภายใน 4 วันแรก (Capital Velocity Booster)",
                 "DTE Exit (Gamma Defense): ปิด Position ทันทีเมื่อเหลือ DTE ≤ 2 วัน (ห้ามถือลุ้นจนหมดอายุ)",
               ],

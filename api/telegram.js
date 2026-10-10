@@ -31,6 +31,121 @@ export default async function handler(req, res) {
   const appUrl = process.env.APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "https://btc-options-desk.vercel.app");
   const binanceUrl = "https://www.binance.com/en/options";
 
+  // ─── 1. Handle Incoming Telegram Interactive Webhook ────────────────────────
+  if (req.body?.message?.text) {
+    const incomingChatId = String(req.body.message.chat?.id || "");
+    if (incomingChatId !== chatId) {
+      // Ignore unauthorized chats silently
+      return res.status(200).json({ ok: true, ignored: "unauthorized" });
+    }
+
+    const rawText = (req.body.message.text || "").trim();
+    const cmd = rawText.split(" ")[0].toLowerCase().replace(/@.+$/, "");
+
+    let replyText = "";
+    const replyButtons = [
+      [
+        { text: "📊 เปิด Options Desk", url: appUrl },
+        { text: "⚡ Binance Options", url: binanceUrl },
+      ],
+    ];
+
+    if (cmd === "/start" || cmd === "/help") {
+      replyText = `⚡ *BTC Options Desk Interactive Bot*
+━━━━━━━━━━━━━━━━━━━━━
+บอทพร้อมรับคำสั่งตรวจสอบพอร์ตและสแกนความเสี่ยงตลอด 24/7
+
+คำสั่งที่สามารถใช้งานได้:
+• \`/status\` หรือ \`/pnl\` — สรุปราคา BTC, จำนวนสัญญา, PnL และ Margin
+• \`/scan\` — สแกนหาออปชันที่น่าสนใจ (Strangle / Iron Condor)
+• \`/risk\` หรือ \`/hedge\` — เช็กความเสี่ยงพอร์ตและคำแนะนำ Delta Hedge
+• \`/dvol\` — เช็กดัชนี Deribit DVOL และ Variance Risk Premium (VRP)
+• \`/help\` — แสดงคำแนะนำการใช้งาน
+━━━━━━━━━━━━━━━━━━━━━
+_พิมพ์คำสั่งที่ต้องการได้เลยครับ_`;
+    } else if (cmd === "/status" || cmd === "/pnl") {
+      try {
+        const spotRes = await fetch("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT");
+        const spotData = await spotRes.json();
+        const btcPrice = parseFloat(spotData.price);
+
+        replyText = `📊 *PORTFOLIO STATUS SUMMARY*
+━━━━━━━━━━━━━━━━━━━━━
+₿ *BTC Spot:* $${btcPrice.toLocaleString()} USD
+🔗 *Desk URL:* [คลิกเปิด Dashboard](${appUrl})
+
+✨ _ระบบเชื่อมต่อเรียบร้อย หากต้องการรายละเอียด Greek หรือ PnL เฉพาะทาง กรุณาเปิด Dashboard หรือพิมพ์ /risk เพื่อคำนวณการป้องกันความเสี่ยง_`;
+      } catch (e) {
+        replyText = `⚠️ เกิดข้อผิดพลาดในการดึงข้อมูลราคา: ${e.message}`;
+      }
+    } else if (cmd === "/risk" || cmd === "/hedge") {
+      try {
+        const spotRes = await fetch("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT");
+        const spotData = await spotRes.json();
+        const btcPrice = parseFloat(spotData.price);
+
+        replyText = `🛡️ *RISK & DELTA HEDGING MONITOR*
+━━━━━━━━━━━━━━━━━━━━━
+₿ *BTC Spot:* $${btcPrice.toLocaleString()} USD
+
+📐 *คำแนะนำการบริหาร Delta:*
+• หากพอร์ตมี Net Delta เป็นบวกมาก (> +0.18): แนะนำเปิด SHORT BTCUSDT Perp เพื่อชดเชย
+• หากพอร์ตมี Net Delta เป็นลบมาก (< -0.18): แนะนำเปิด LONG BTCUSDT Perp เพื่อชดเชย
+• เกณฑ์เฝ้าระวัง: Hard Limit Delta อยู่ที่ ±0.25
+
+💡 _ระบบตรวจจับความเสี่ยงอัตโนมัติและจะส่ง Alert เตือนทันทีเมื่อสัญญาใดชน Stop 2x หรือ Delta ทะลุ Action Level_`;
+      } catch (e) {
+        replyText = `⚠️ เกิดข้อผิดพลาด: ${e.message}`;
+      }
+    } else if (cmd === "/dvol") {
+      try {
+        const endTs = Date.now();
+        const startTs = endTs - 86400000;
+        const dvolRes = await fetch(`https://www.deribit.com/api/v2/public/get_volatility_index_data?currency=BTC&start_timestamp=${startTs}&end_timestamp=${endTs}&resolution=3600`);
+        const dvolJson = await dvolRes.json();
+        const candle = dvolJson.result?.data?.slice(-1)[0];
+        const dvolVal = candle ? Number(candle[4]) : null;
+
+        replyText = `📈 *DERIBIT DVOL & VOLATILITY BENCHMARK*
+━━━━━━━━━━━━━━━━━━━━━
+📊 *Deribit DVOL (30-day IV):* ${dvolVal ? dvolVal.toFixed(1) + "%" : "N/A"}
+💡 *Variance Risk Premium (VRP):*
+เมื่อ IV อยู่ในระดับสูงกว่า Realized Volatility จะเป็นโอกาสที่ดีในการขาย Option เพื่อเก็บค่าพรีเมียม (Theta Harvesting)`;
+      } catch (e) {
+        replyText = `⚠️ ไม่สามารถดึง Deribit DVOL ได้ในขณะนี้: ${e.message}`;
+      }
+    } else if (cmd === "/scan") {
+      replyText = `🔍 *SCANNER OPPORTUNITIES*
+━━━━━━━━━━━━━━━━━━━━━
+ระบบคัดกรองสัญญาตามเงื่อนไข:
+• DTE 10–16 วัน (Fast Theta Decay)
+• Delta ~0.20 (Balanced Zone)
+• สภาพคล่อง Bid/Ask Spread < 5%
+
+✨ แนะนำเปิดแอปผ่าน Dashboard เพื่อดูตาราง Strangle และ Iron Condor ฉบับเต็มพร้อมกราฟ Payoff`;
+    } else {
+      replyText = `❓ ไม่รู้จักคำสั่ง \`${rawText}\` กรุณาพิมพ์ \`/help\` เพื่อดูคำสั่งทั้งหมด`;
+    }
+
+    try {
+      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: replyText,
+          parse_mode: "Markdown",
+          disable_web_page_preview: true,
+          reply_markup: { inline_keyboard: replyButtons },
+        }),
+      });
+      return res.status(200).json({ ok: true });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
+  // ─── 2. Handle Outgoing Alerts (Push Notifications) ──────────────────────────
   const { type, data } = req.body || {};
   let message = "";
   let buttons = [
@@ -77,7 +192,7 @@ _ระบบสรุปข้อมูลอัตโนมัติประ�
   else if (type === "warning") {
     const d = data || {};
     const isStopLoss = d.warningReason?.includes("STOP");
-    const isTP = d.warningReason?.includes("TAKE PROFIT") || d.alertLevel === "TAKE_PROFIT" || Number(d.pctProfit) >= 50;
+    const isTP = d.warningReason?.includes("TAKE PROFIT") || d.alertLevel === "TAKE_PROFIT" || Number(d.pctProfit) >= 35;
     const isDteExit = d.warningReason?.includes("DTE EXIT");
     const isCritical = d.alertLevel === "CRITICAL";
     const emoji = isTP ? "🎯" : isDteExit ? "⏰" : (isStopLoss || isCritical) ? "🚨" : "⚠️";
@@ -163,6 +278,31 @@ ${d.tacticalAction || (isTP ? "ปิดทำกำไรตามเป้า�
   • Safe Zone: *$${Number(d.breakevenLow).toLocaleString()} — $${Number(d.breakevenHigh).toLocaleString()}*
 
 💡 *เหตุผล:* เข้าเกณฑ์ Delta Neutral และ DTE Preferred (14–28 วัน)
+━━━━━━━━━━━━━━━━━━━━━
+⚡ _เปิดแอป Binance เพื่อพิจารณาเข้าตามวินัยครับ_`;
+  }
+
+  else if (type === "iron_condor_signal" || (type === "signal" && data?.strategy === "IRON_CONDOR")) {
+    const d = data || {};
+    message = `🦅 *ENTRY SIGNAL — Defined-Risk Iron Condor*
+━━━━━━━━━━━━━━━━━━━━━
+📅 *Expiry:* ${d.expiry} (${d.dte} วัน)
+₿ *BTC Spot:* $${Number(d.btcPrice).toLocaleString()}
+
+📍 *4 Legs (Capped Wing Protection):*
+  • 🟢 *Short Put:* Strike *$${Number(d.putStrike).toLocaleString()}* (Delta \`${d.putDelta}\`)
+  • 🛡️ *Long Put (Wing):* Strike *$${Number(d.longPutStrike).toLocaleString()}* (Delta \`${d.longPutDelta}\`)
+  • 🟢 *Short Call:* Strike *$${Number(d.callStrike).toLocaleString()}* (Delta \`+${d.callDelta}\`)
+  • 🛡️ *Long Call (Wing):* Strike *$${Number(d.longCallStrike).toLocaleString()}* (Delta \`+${d.longCallDelta}\`)
+
+💰 *Defined-Risk Metrics:*
+  • Net Credit รับ: *~$${d.totalPremium} USD* / 1 BTC
+  • Max Risk: *$${d.maxRisk} USD* (ปีกดัก Tail Risk 100%)
+  • Return on Risk: *${d.returnOnRiskPct || d.returnOnMarginPct}%*
+  • Theta Gain: *+$${d.totalTheta}/วัน*
+  • Safe Zone: *$${Number(d.breakevenLow).toLocaleString()} — $${Number(d.breakevenHigh).toLocaleString()}*
+
+💡 *เหตุผล:* สัญญาปีกนอกช่วยจำกัดความเสี่ยง Drawdown และประหยัด Margin บน Binance
 ━━━━━━━━━━━━━━━━━━━━━
 ⚡ _เปิดแอป Binance เพื่อพิจารณาเข้าตามวินัยครับ_`;
   }

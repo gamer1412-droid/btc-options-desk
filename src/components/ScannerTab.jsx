@@ -18,6 +18,7 @@ export function ScannerTab({
   accountInfo,
   currentPositions = [],
   optimalProfile = null,
+  maxPain = null,
   onAnalyzeStrangle,
   onOpenPayoff,
   onOpenPaperTrade,
@@ -48,6 +49,8 @@ export function ScannerTab({
         ? "short_put_signal"
         : opp.strategy === "SKEWED_STRANGLE"
         ? "skewed_strangle_signal"
+        : opp.strategy === "IRON_CONDOR"
+        ? "iron_condor_signal"
         : "strangle_signal";
       await sendTelegram(signalType, opp);
       SoundFX.playSuccessChime();
@@ -90,7 +93,7 @@ export function ScannerTab({
     if (strategyFilter === "ALL") return opportunities;
     if (strategyFilter === "AUTO") {
       const allowed = regime?.allowedStrategies || [];
-      return opportunities.filter(o => allowed.includes(o.strategy));
+      return opportunities.filter(o => allowed.includes(o.strategy) || (o.strategy === "IRON_CONDOR" && allowed.includes("STRANGLE")));
     }
     return opportunities.filter(o => o.strategy === strategyFilter);
   }, [opportunities, strategyFilter, regime]);
@@ -243,11 +246,46 @@ export function ScannerTab({
         * Annualized ROM ประมาณจาก Mark Price + Margin สมมติ 15–18% ยังไม่รวม spread/slippage/fees — ตรวจราคาจริงบน Binance ก่อนส่งคำสั่ง
       </div>
 
+      {/* ── Max Pain Pinning Point Banner ───────────────────────────────── */}
+      {maxPain && maxPain.available && (
+        <div style={{
+          background: `linear-gradient(90deg, ${T.bg2}, #0d1624)`,
+          border: `1px solid ${T.blue}40`,
+          borderRadius: 10,
+          padding: "10px 16px",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 8,
+          boxShadow: `0 4px 12px rgba(0,0,0,0.2)`,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 16 }}>🎯</span>
+            <div>
+              <span style={{ color: T.textPrimary, fontFamily: T.fontSans, fontWeight: 800, fontSize: 12, letterSpacing: 0.5 }}>
+                OPTIONS MAX PAIN:
+              </span>{" "}
+              <span style={{ color: T.blue, fontFamily: T.font, fontWeight: 900, fontSize: 14 }}>
+                {maxPain.formattedMaxPain}
+              </span>{" "}
+              <span style={{ color: maxPain.distancePct >= 0 ? T.green : T.red, fontFamily: T.font, fontSize: 11, fontWeight: 700 }}>
+                ({maxPain.distancePct > 0 ? "+" : ""}{maxPain.distancePct}% vs Spot)
+              </span>
+            </div>
+          </div>
+          <div style={{ color: T.textMuted, fontSize: 10, fontFamily: T.fontSans }}>
+            จุดที่ฝั่งซื้อ Option มีมูลค่าต่ำสุดรวม (Strike Pinning สถิติในวันหมดอายุ 08:00 UTC)
+          </div>
+        </div>
+      )}
+
       {/* ── Strategy Filter + Sort Toggle ───────────────────────────────── */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", background: T.bg1, padding: 5, borderRadius: 10, border: `1px solid ${T.border}`, flex: 1 }}>
           {[
             { key: "AUTO", label: `🧭 AUTO${regime?.isNoTrade ? " — NO_TRADE" : isBullishRegime ? " — BULL" : ""}`, color: regime?.isNoTrade ? T.red : T.green },
+            { key: "IRON_CONDOR", label: "🦅 IRON CONDOR (CAPPED)", color: "#38bdf8" },
             { key: "SHORT_PUT", label: "🟢 SHORT PUT", color: T.green },
             { key: "SKEWED_STRANGLE", label: "⚡ SKEWED", color: T.blue },
             { key: "STRANGLE", label: "⚖️ STRANGLE", color: T.purple },
@@ -448,6 +486,45 @@ export function ScannerTab({
                           <div><span style={{ color: T.textSecondary, fontSize: 8, display: "block" }}>IV</span><strong style={{ color: T.purple }}>{opp.putIV}%</strong></div>
                           <div><span style={{ color: T.textSecondary, fontSize: 8, display: "block" }}>MARK</span><strong style={{ color: T.green }}>+${opp.putMark}</strong></div>
                           <div><span style={{ color: T.textSecondary, fontSize: 8, display: "block" }}>THETA</span><strong style={{ color: T.green }}>+${opp.totalTheta}</strong></div>
+                        </div>
+                      </div>
+                    ) : opp.strategy === "IRON_CONDOR" ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                          {/* Put Wing */}
+                          <div style={{ background: T.bg2, border: `1px solid ${T.blue}22`, borderLeft: `3px solid #38bdf8`, borderRadius: 7, padding: 9 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                              <span style={{ color: "#38bdf8", fontWeight: 700, fontSize: 10, fontFamily: T.fontSans }}>PUT CREDIT SPREAD</span>
+                              <span style={{ color: T.textSecondary, fontSize: 9, fontFamily: T.font }}>Wing {fmtUSD(opp.putWingWidth, 0)}</span>
+                            </div>
+                            <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 14, fontWeight: 800 }}>
+                              Sell {fmtUSD(opp.putStrike, 0)}P / Buy {fmtUSD(opp.longPutStrike, 0)}P
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 10, color: T.textSecondary, fontFamily: T.font }}>
+                              <span>Short Δ <strong style={{ color: T.amber }}>{opp.putDelta}</strong></span>
+                              <span>Long Δ <strong style={{ color: T.textMuted }}>{opp.longPutDelta}</strong></span>
+                            </div>
+                          </div>
+                          {/* Call Wing */}
+                          <div style={{ background: T.bg2, border: `1px solid ${T.purple}22`, borderLeft: `3px solid #c084fc`, borderRadius: 7, padding: 9 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                              <span style={{ color: "#c084fc", fontWeight: 700, fontSize: 10, fontFamily: T.fontSans }}>CALL CREDIT SPREAD</span>
+                              <span style={{ color: T.textSecondary, fontSize: 9, fontFamily: T.font }}>Wing {fmtUSD(opp.callWingWidth, 0)}</span>
+                            </div>
+                            <div style={{ color: T.textPrimary, fontFamily: T.font, fontSize: 14, fontWeight: 800 }}>
+                              Sell {fmtUSD(opp.callStrike, 0)}C / Buy {fmtUSD(opp.longCallStrike, 0)}C
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 10, color: T.textSecondary, fontFamily: T.font }}>
+                              <span>Short Δ <strong style={{ color: T.blue }}>+{opp.callDelta}</strong></span>
+                              <span>Long Δ <strong style={{ color: T.textMuted }}>+{opp.longCallDelta}</strong></span>
+                            </div>
+                          </div>
+                        </div>
+                        {/* Risk & Return Summary */}
+                        <div style={{ display: "flex", justifyContent: "space-between", background: T.bg1, padding: "6px 10px", borderRadius: 6, fontSize: 10, fontFamily: T.font, color: T.textSecondary }}>
+                          <span>🛡️ Max Risk: <strong style={{ color: T.red }}>${opp.maxRisk} USD</strong></span>
+                          <span>💰 Net Credit: <strong style={{ color: T.green }}>+${opp.totalPremium} USD</strong></span>
+                          <span>📈 Return on Risk: <strong style={{ color: T.blue }}>{opp.returnOnRiskPct}%</strong></span>
                         </div>
                       </div>
                     ) : (

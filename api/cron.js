@@ -4,7 +4,7 @@
 import crypto from "crypto";
 import { requireCronAuth } from "../lib/security.js";
 import { claimAlert } from "../lib/alertState.js";
-import { buildMarketIndicators } from "../lib/marketIndicators.js";
+import { buildMarketIndicators, calculateHistoricalVolRank } from "../lib/marketIndicators.js";
 import { classifyMarketRegime } from "../src/services/marketRegime.js";
 import { scanEntryOpportunities, determineOptimalMarketProfile } from "../src/services/scanner.js";
 import { evaluateEntryRules } from "../src/services/rulesEngine.js";
@@ -77,7 +77,7 @@ _ระบบสรุปข้อมูลอัตโนมัติ 24/7_`;
   } else if (type === "warning") {
     const d = data || {};
     const isStopLoss = d.warningReason?.includes("STOP");
-    const isTP = d.warningReason?.includes("TAKE PROFIT") || d.alertLevel === "TAKE_PROFIT" || Number(d.pctProfit) >= 50;
+    const isTP = d.warningReason?.includes("TAKE PROFIT") || d.alertLevel === "TAKE_PROFIT" || Number(d.pctProfit) >= 35;
     const isDteExit = d.warningReason?.includes("DTE EXIT");
     const isCritical = d.alertLevel === "CRITICAL";
     const emoji = isTP ? "🎯" : isDteExit ? "⏰" : (isStopLoss || isCritical) ? "🚨" : "⚠️";
@@ -182,16 +182,35 @@ export default async function handler(req, res) {
   };
 
   try {
-    // 1. Fetch Market Context & Marks
-    const [tickerRes, klinesRes, marksRes] = await Promise.all([
+    // 1. Fetch Market Context & Marks (with real tickers merged for accurate liquidity filtering)
+    const [tickerRes, klinesRes, marksRes, tickersRes] = await Promise.all([
       fetch(`${BINANCE_SPOT_BASE}/api/v3/ticker/24hr?symbol=BTCUSDT`),
       fetch(`${BINANCE_SPOT_BASE}/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=120`),
       fetch(`${BINANCE_OPTIONS_BASE}/eapi/v1/mark?underlying=BTCUSDT`).catch(() => ({ json: async () => [] })),
+      fetch(`${BINANCE_OPTIONS_BASE}/eapi/v1/ticker`).catch(() => ({ json: async () => [] })),
     ]);
 
     const ticker = await tickerRes.json();
     const klines = await klinesRes.json();
     const marksData = await marksRes.json();
+    const tickersData = await tickersRes.json().catch(() => []);
+
+    if (Array.isArray(tickersData) && tickersData.length > 0 && Array.isArray(marksData)) {
+      const tickerMap = new Map();
+      for (const t of tickersData) {
+        if (t.symbol) tickerMap.set(t.symbol, t);
+      }
+      for (const m of marksData) {
+        const t = tickerMap.get(m.symbol);
+        if (t) {
+          m.bidPrice = t.bidPrice;
+          m.askPrice = t.askPrice;
+          m.volume = t.volume;
+          m.amount = t.amount;
+          m.lastPrice = t.lastPrice;
+        }
+      }
+    }
 
     const currentBtcPrice = parseFloat(ticker.lastPrice) || 0;
     const change24h = parseFloat(ticker.priceChangePercent) || 0;
@@ -207,6 +226,7 @@ export default async function handler(req, res) {
       }
     }
 
+    const volRankData = avgMarketIv != null ? calculateHistoricalVolRank(avgMarketIv, klines, 90) : null;
     const marketContext = {
       price: currentBtcPrice,
       change24h: Math.round(change24h * 100) / 100,
@@ -220,7 +240,8 @@ export default async function handler(req, res) {
       realizedVol7: indicators.realizedVol7 ?? null,
       realizedVol30: indicators.realizedVol30 ?? null,
       marketIv: avgMarketIv,
-      ivRank: null,
+      ivRank: volRankData?.ivRank ?? null,
+      ivPercentile: volRankData?.ivPercentile ?? null,
     };
     const marketRegime = classifyMarketRegime(marketContext);
 

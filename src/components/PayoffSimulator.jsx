@@ -13,7 +13,7 @@ export function PayoffSimulator({
   const [simSpotOffsetPct, setSimSpotOffsetPct] = useState(0); // -30% to +30%
 
   const normalized = normalizePayoffSetup(setup, currentSpot);
-  const { isStrangle, putStrike, callStrike, positionSize, premiumPerBtc, maxDollarProfit } = normalized;
+  const { isStrangle, isShortPut, isShortCall, putStrike, callStrike, positionSize, premiumPerBtc, maxDollarProfit } = normalized;
   const lowerBE = normalized.lowerBreakeven;
   const upperBE = normalized.upperBreakeven;
 
@@ -22,7 +22,7 @@ export function PayoffSimulator({
 
   // Calculate Payoff at any spot price S
   const calculatePayoff = (S) => {
-    return calculateExpiryPayoff({ spot: S, putStrike, callStrike, premiumPerBtc, positionSize, isStrangle });
+    return calculateExpiryPayoff({ spot: S, putStrike, callStrike, premiumPerBtc, positionSize, isStrangle, isShortCall });
   };
 
   const simulatedPnl = calculatePayoff(simulatedSpot);
@@ -45,7 +45,7 @@ export function PayoffSimulator({
     }
 
     return { points, minSpot, maxSpot, minPnl, maxPnl };
-  }, [currentSpot, putStrike, callStrike, maxDollarProfit, positionSize, isStrangle]);
+  }, [currentSpot, putStrike, callStrike, maxDollarProfit, positionSize, isStrangle, isShortCall]);
 
   // Convert (s, pnl) to SVG coordinates (width 500, height 220)
   const W = 540;
@@ -113,11 +113,11 @@ export function PayoffSimulator({
                   fontFamily: T.font,
                 }}
               >
-                {setup.strategyTitle || setup.strategy || (isStrangle ? "STRANGLE" : "SHORT PUT")}
+                {setup.strategyTitle || setup.strategy || setup.type || (isStrangle ? "STRANGLE" : isShortCall ? "SHORT CALL" : "SHORT PUT")}
               </span>
             </div>
             <div style={{ color: T.textSecondary, fontSize: 12, marginTop: 4, fontFamily: T.fontSans }}>
-              DTE: <strong>{setup.dte || 21}d</strong> ({setup.expiryDate || "—"}) │ Spot: <strong>{fmtUSD(currentSpot, 0)}</strong>
+              DTE: <strong>{setup.dte != null ? `${setup.dte}d` : "—"}</strong> ({setup.expiryDate || setup.expiry || "—"}) │ Spot: <strong>{fmtUSD(currentSpot, 0)}</strong>
             </div>
           </div>
 
@@ -165,17 +165,19 @@ export function PayoffSimulator({
             </div>
           </div>
           <div>
-            <div style={{ color: T.textSecondary, fontSize: 10, fontFamily: T.fontSans, fontWeight: 600 }}>LOWER BREAKEVEN</div>
+            <div style={{ color: T.textSecondary, fontSize: 10, fontFamily: T.fontSans, fontWeight: 600 }}>
+              {isShortCall ? "UPPER BREAKEVEN" : "LOWER BREAKEVEN"}
+            </div>
             <div style={{ color: T.amber, fontFamily: T.font, fontSize: 16, fontWeight: 700 }}>
-              {fmtUSD(lowerBE, 0)}
+              {isShortCall ? fmtUSD(upperBE, 0) : fmtUSD(lowerBE, 0)}
             </div>
           </div>
           <div>
             <div style={{ color: T.textSecondary, fontSize: 10, fontFamily: T.fontSans, fontWeight: 600 }}>
-              {upperBE ? "UPPER BREAKEVEN" : "PROTECTION BUFFER"}
+              {isStrangle ? "UPPER BREAKEVEN" : "PROTECTION BUFFER"}
             </div>
-            <div style={{ color: upperBE ? T.amber : T.blue, fontFamily: T.font, fontSize: 16, fontWeight: 700 }}>
-              {upperBE ? fmtUSD(upperBE, 0) : `+${((currentSpot - putStrike) / currentSpot * 100).toFixed(1)}% Safe`}
+            <div style={{ color: isStrangle ? T.amber : T.blue, fontFamily: T.font, fontSize: 16, fontWeight: 700 }}>
+              {isStrangle ? fmtUSD(upperBE, 0) : isShortCall ? `+${((callStrike - currentSpot) / currentSpot * 100).toFixed(1)}% Buffer` : `+${((currentSpot - putStrike) / currentSpot * 100).toFixed(1)}% Safe`}
             </div>
           </div>
         </div>
@@ -194,16 +196,20 @@ export function PayoffSimulator({
             <line x1={padX} y1={zeroY} x2={W - padX} y2={zeroY} stroke={T.borderHover} strokeWidth="1" strokeDasharray="3,3" />
 
             {/* Strike Vertical Guides */}
-            <line x1={scaleX(putStrike)} y1={padY} x2={scaleX(putStrike)} y2={H - padY} stroke={T.green} strokeWidth="1" strokeDasharray="2,2" />
-            <text x={scaleX(putStrike)} y={padY - 4} fill={T.green} fontSize="9" textAnchor="middle" fontFamily={T.font}>
-              Put {putStrike / 1000}k
-            </text>
+            {!isShortCall && (
+              <>
+                <line x1={scaleX(putStrike)} y1={padY} x2={scaleX(putStrike)} y2={H - padY} stroke={T.green} strokeWidth="1" strokeDasharray="2,2" />
+                <text x={scaleX(putStrike)} y={padY - 4} fill={T.green} fontSize="9" textAnchor="middle" fontFamily={T.font}>
+                  Put {Math.round(putStrike / 1000)}k
+                </text>
+              </>
+            )}
 
-            {isStrangle && (
+            {(isStrangle || isShortCall) && (
               <>
                 <line x1={scaleX(callStrike)} y1={padY} x2={scaleX(callStrike)} y2={H - padY} stroke={T.purple} strokeWidth="1" strokeDasharray="2,2" />
                 <text x={scaleX(callStrike)} y={padY - 4} fill={T.purple} fontSize="9" textAnchor="middle" fontFamily={T.font}>
-                  Call {callStrike / 1000}k
+                  Call {Math.round(callStrike / 1000)}k
                 </text>
               </>
             )}

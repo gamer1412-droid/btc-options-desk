@@ -39,9 +39,12 @@ export function evaluateEntryRules(opp, marketContext = {}, accountInfo = null, 
   const strategy = opp.strategy || "STRANGLE";
   const isShortPut = strategy === "SHORT_PUT";
   const isSkewed = strategy === "SKEWED_STRANGLE";
+  const isIronCondor = strategy === "IRON_CONDOR";
 
   // ── Market Regime Gate (fail closed) ────────────────────────────────────
   const regime = marketContext.regime?.regime ? marketContext.regime : classifyMarketRegime(marketContext);
+  const strategyAllowed = regime.allowedStrategies.includes(strategy) || (isIronCondor && regime.allowedStrategies.includes("STRANGLE"));
+
   if (regime.isNoTrade) {
     isBlocked = true;
     sizeMultiplier = 0;
@@ -52,7 +55,7 @@ export function evaluateEntryRules(opp, marketContext = {}, accountInfo = null, 
       icon: "⛔",
     });
     reasons.push(`⛔ Regime ${regime.label}: ${regime.reasons[0]}`);
-  } else if (!regime.allowedStrategies.includes(strategy)) {
+  } else if (!strategyAllowed) {
     isBlocked = true;
     sizeMultiplier = 0;
     checks.push({
@@ -708,25 +711,25 @@ export function classifyPositionState(pos) {
   // 3. Take Profit
   const profitPct = premium > 0 ? ((premium - pos.currentPrice) / premium) * 100 : 0;
   if (profitPct >= cfg.exit.mainTpPct) {
-    return { state: "EXIT", level: "success", label: `🎯 TAKE PROFIT (กำไร ${profitPct.toFixed(0)}% >= 50%)` };
+    return { state: "EXIT", level: "success", label: `🎯 TAKE PROFIT (กำไร ${profitPct.toFixed(0)}% >= ${cfg.exit.mainTpPct}%)` };
   }
 
-  // 4. Delta >= 0.65 (Action Level)
+  // 4. Delta >= actionDelta (Action Level)
   if (absDelta >= cfg.defense.actionDelta) {
     if (rollCount < cfg.roll.maxRollsPerPosition) {
-      return { state: "ROLL_PENDING", level: "danger", label: `🚨 ACTION REQUIRED (Delta ${absDelta.toFixed(2)} >= 0.65 — Close / Roll 1 ครั้ง)` };
+      return { state: "ROLL_PENDING", level: "danger", label: `🚨 ACTION REQUIRED (Delta ${absDelta.toFixed(2)} >= ${cfg.defense.actionDelta} — Close / Roll 1 ครั้ง)` };
     }
-    return { state: "EXIT", level: "danger", label: `🚨 HARD CLOSE (Delta ${absDelta.toFixed(2)} >= 0.65 — ใช้สิทธิ์ Roll ไปแล้ว)` };
+    return { state: "EXIT", level: "danger", label: `🚨 HARD CLOSE (Delta ${absDelta.toFixed(2)} >= ${cfg.defense.actionDelta} — ใช้สิทธิ์ Roll ไปแล้ว)` };
   }
 
-  // 5. Delta >= 0.50 (Defensive Mode)
+  // 5. Delta >= strongWarningDelta (Defensive Mode)
   if (absDelta >= cfg.defense.strongWarningDelta) {
-    return { state: "DEFENSIVE", level: "danger", label: `⚠️ DEFENSIVE MODE (Delta ${absDelta.toFixed(2)} >= 0.50 — เตรียม Close / Roll)` };
+    return { state: "DEFENSIVE", level: "danger", label: `⚠️ DEFENSIVE MODE (Delta ${absDelta.toFixed(2)} >= ${cfg.defense.strongWarningDelta} — เตรียม Close / Roll)` };
   }
 
-  // 6. Delta >= 0.35 (Warning)
+  // 6. Delta >= warningDelta (Warning)
   if (absDelta >= cfg.defense.warningDelta) {
-    return { state: "WARNING", level: "warning", label: `⚠️ WARNING (Delta ${absDelta.toFixed(2)} >= 0.35 — เฝ้าระวัง)` };
+    return { state: "WARNING", level: "warning", label: `⚠️ WARNING (Delta ${absDelta.toFixed(2)} >= ${cfg.defense.warningDelta} — เฝ้าระวัง)` };
   }
 
   return { state: "NORMAL", level: "healthy", label: "✅ NORMAL (อยู่ในเกณฑ์ปกติ)" };

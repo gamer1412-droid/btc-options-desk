@@ -130,29 +130,45 @@ vercel dev
 | `/api/binance?action=btcPrice` | GET | ราคา BTC ปัจจุบัน (public, ไม่ต้อง auth) |
 | `/api/binance?action=optionPositions` | GET | Open options positions ของคุณ |
 | `/api/binance?action=optionAccount` | GET | ข้อมูล margin/balance ของ options account |
-| `/api/binance?action=optionMarks` | GET | Mark price + Greeks ของทุก contract (public) |
+| `/api/binance?action=optionMarks` | GET | Mark price + Greeks + Real Bid/Ask Liquidity ของทุก contract (public) |
+| `/api/binance?action=btcMarketContext` | GET | EMA, 24h change, Realized Vol, Deribit 30D DVOL Index และ VRP |
 | `/api/binance?action=optionOrders` | GET | ประวัติ order 50 รายการล่าสุด |
+| `/api/telegram` | POST | Webhook สองทางสำหรับ Telegram Bot (รองรับคำสั่ง /status, /scan, /hedge ฯลฯ) |
 | `/api/analyze` | POST | ส่ง `{ prompt }` → ได้ AI analysis กลับมา |
 
 Endpoints ที่อ่านบัญชี, เรียก AI และส่ง Telegram ต้องมี `Authorization: Bearer <APP_ACCESS_TOKEN>` ส่วน market data สาธารณะยังเรียกได้โดยไม่ต้องปลดล็อก
 
-## ฟีเจอร์ในแอป
+## ฟีเจอร์ระดับสถาบันในแอป v3.5
 
-- **Live position tracking** — sync กับ Binance ทุก 15 วินาที
-- **Auto health classification** — position จะถูกจัดเป็น healthy / warning / danger ตาม Delta และ DTE อัตโนมัติ
-- **AI Analysis** — กดปุ่ม "AI ANALYZE" ที่ position ไหนก็ได้ Groq (Llama 3.3) จะวิเคราะห์และแนะนำ action เป็นภาษาไทย
-- **Telegram Alerts** — แจ้งเตือนอัตโนมัติผ่าน Telegram เมื่อ Delta ≥ 0.40 / Profit ≥ 50% / Loss = 2× premium / DTE ≤ 2
-- **Market IV card** — แสดง IV เฉลี่ยตลาด BTC options ปัจจุบัน
-- **Rules reference** — แท็บ Rules เก็บกฎ Entry/Exit/Roll/Stop-Loss ที่ตั้งไว้
+- **Real Order Book Liquidity Integration** — ดึง Bid/Ask จริงและ Trade Volume จาก Binance `/eapi/v1/ticker` คำนวณ Spread % ป้องกัน Slippage
+- **Deribit DVOL & Volatility Risk Premium (VRP)** — เชื่อมโยงดัชนี Deribit 30-Day DVOL เทียบกับ 30D Realized Volatility เพื่อจับจังหวะ Premium Rich/Cheap อย่างแม่นยำ
+- **Defined-Risk Iron Condor Engine** — สแกนหาชุด 4 ขา (Put Credit Spread + Call Credit Spread) จำกัดความเสี่ยงสูงสุด (Capped Tail Risk) พร้อม Payoff Curve
+- **Dynamic Delta Hedging Assistant** — คำนวณ Net Portfolio Delta แบบ Real-time พร้อมระบุ Lot และ Notional USD ที่ต้องเปิด Long/Short บน BTCUSDT Perpetual Futures เพื่อ Rebalance เป็น Delta-Neutral ทันที
+- **Max Pain Strike Analysis** — คำนวณจุด Strike ที่ทำให้ Option Buyers ขาดทุนสูงสุด (Pinning Effect ก่อนวันหมดอายุ)
+- **Multi-Dimensional Stress Matrix** — จำลองพอร์ตภายใต้ Spot Shock (±5%, ±10%, ±20%) ผูกกับ IV Vol Shock (+25 Vol pts Crash Scenario)
+- **Two-Way Interactive Telegram Webhook** — พิมพ์สั่งบอทใน Telegram ได้โดยตรง:
+  - `/status` — ตรวจสอบสถานะบัญชี Margin & Capacity
+  - `/pnl` — สรุปกำไรขาดทุนและ Greeks พอร์ต
+  - `/scan` — สแกนโอกาส Short Strangle, Iron Condor, Short Put ล่าสุด
+  - `/risk` — รายงานความเสี่ยงและ Alert ที่ต้องระวัง
+  - `/hedge` — รายงาน Net Delta และคำแนะนำ Rebalance ด้วย BTCUSDT Futures
+  - `/dvol` — รายงานค่า Deribit DVOL และค่า VRP
+- **AI Analysis & Audio FX** — วิเคราะห์เชิงลึกด้วย Groq (Llama 3.3) พร้อมเสียงเอฟเฟกต์บรรยากาศ Bloomberg War Room
+
+## การตั้งค่า Telegram Interactive Webhook (Two-Way Bot)
+
+หากต้องการให้บอทโต้ตอบคำสั่ง (`/status`, `/scan`, `/hedge`) ให้ลงทะเบียน Webhook กับ Telegram ดังนี้:
+
+```bash
+curl -F "url=https://<your-vercel-domain>.vercel.app/api/telegram" \
+  https://api.telegram.org/bot<YOUR_TELEGRAM_BOT_TOKEN>/setWebhook
+```
 
 ## ข้อจำกัดที่ควรรู้
 
-- แอปนี้เป็น **read-only** — ไม่มีการส่งคำสั่งซื้อขายใดๆ ไปที่ Binance ทั้งสิ้น การ Close/Roll position ต้องทำเองในแอป Binance
-- Poll ทุก 15 วินาที ไม่ใช่ WebSocket แบบ tick-by-tick — เพียงพอสำหรับติดตาม theta decay รายวัน แต่ไม่เหมาะกับ scalping
-- AI Analysis เป็นเครื่องมือช่วยตัดสินใจ ไม่ใช่คำแนะนำทางการเงิน ควรใช้ประกอบกับดุลยพินิจของคุณเองเสมอ
-- IV ที่แสดงใน dashboard คือ IV เฉลี่ยของตลาด ณ ขณะนั้น ไม่ใช่ IV Rank แบบ 52-สัปดาห์ (ต้องมี database ประวัติ)
-- Annualized ROM ใน Scanner เป็นค่าประมาณจาก Mark Price และ Margin สมมติ ยังไม่รวม bid/ask spread, fees, slippage และ Tail Loss
-- Paper Trading ใช้ mark price ล่าสุดของ option แต่ข้อมูลเก็บใน browser เท่านั้น จึงไม่ใช่ backtest หรือ execution simulator เต็มรูปแบบ
+- แอปนี้เป็น **read-only** สำหรับ Binance Options — ปลอดภัย 100% ต่อเงินในบัญชี การเปิด/ปิดคำสั่งทำผ่าน Binance UI
+- Poll ทุก 15 วินาที พร้อม background cron ทุก 10 นาทีสำหรับตรวจจับและแจ้งเตือน 24/7
+- การ Rebalance Delta Hedging เป็นคำแนะนำตัวเลขทางคณิตศาสตร์ ควรพิจารณา Funding Rate และค่าธรรมเนียม Futures ประกอบเสมอ
 
 ## ตรวจสอบก่อนส่งขึ้น Production
 
