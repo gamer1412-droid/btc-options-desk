@@ -7,7 +7,7 @@ import { mapBinancePosition } from "../src/services/binance.js";
 import { requireAppAuth, requireCronAuth } from "../lib/security.js";
 import { calculateEMA, calculateRealizedVol, buildMarketIndicators, calculateHistoricalVolRank } from "../lib/marketIndicators.js";
 import { ensureBackfilledHistory, getIvRank, getIvPercentile } from "../src/services/ivHistory.js";
-import { deltaColor, classify } from "../src/utils.js";
+import { deltaColor, classify, renderAnalysisHtml } from "../src/utils.js";
 import { classifyMarketRegime, stabilizeMarketRegime } from "../src/services/marketRegime.js";
 import { scanEntryOpportunities, calculateMaxPain } from "../src/services/scanner.js";
 import { checkAlerts, DEFAULT_ALERT_PREFERENCES } from "../src/services/alerts.js";
@@ -432,4 +432,14 @@ test("Iron Condor payoff calculation caps risk on both wings", () => {
   const deepRallyPnl = calculateExpiryPayoff({ spot: 120_000, ...setup });
   assert.equal(deepRallyPnl, -38);
 });
+
+test("renderAnalysisHtml formats bold, headers, code, and trading keywords safely", () => {
+  const input = "### Title\n**Bold Text** with `BTCUSDT` and Action: OPEN STRANGLE status: HEALTHY";
+  const html = renderAnalysisHtml(input);
+  assert.ok(html.includes("<strong"));
+  assert.ok(html.includes("<code"));
+  assert.ok(html.includes("OPEN STRANGLE"));
+  assert.ok(html.includes("HEALTHY"));
+});
+
 

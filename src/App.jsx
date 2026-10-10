@@ -35,6 +35,7 @@ import { PaperTradingDrawer } from "./components/PaperTradingDrawer.jsx";
 import { AlertSettingsModal } from "./components/AlertSettingsModal.jsx";
 import { Onboarding } from "./components/Onboarding.jsx";
 import { BacktestPanel } from "./components/BacktestPanel.jsx";
+import { AIChatDrawer } from "./components/AIChatDrawer.jsx";
 
 const REQUIRED_TOKEN =
   (typeof import.meta !== "undefined" && import.meta.env && (import.meta.env.VITE_APP_ACCESS_TOKEN || import.meta.env.APP_ACCESS_TOKEN)) || "";
@@ -84,6 +85,7 @@ export default function App() {
   const [paperCount, setPaperCount]             = useState(0);
   const [optimalProfile, setOptimalProfile]     = useState(null);
   const [showOnboarding, setShowOnboarding]     = useState(false);
+  const [aiChatOpen, setAiChatOpen]             = useState(false);
 
   const alertedIdsRef = useRef(getPersistedAlerts(ALERT_STORAGE_KEY));
   const alertedEntryIdsRef = useRef(getPersistedAlerts(ENTRY_STORAGE_KEY));
@@ -349,6 +351,8 @@ export default function App() {
         setPaperModalOpen(v => !v);
       } else if (e.key.toLowerCase() === "a") {
         setAlertModalOpen(v => !v);
+      } else if (e.key.toLowerCase() === "c") {
+        setAiChatOpen(v => !v);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -543,6 +547,33 @@ export default function App() {
             >
               <span>❓</span>
               <span>GUIDE</span>
+            </button>
+            <button
+              id="ai-analyst-toggle"
+              onClick={() => {
+                SoundFX.playClick();
+                setAiChatOpen(true);
+              }}
+              title="Open Interactive AI Desk Analyst Chat (Hotkey: C)"
+              style={{
+                background: `linear-gradient(135deg, ${T.purpleDim}, ${T.bg2})`,
+                border: `1px solid ${T.purple}55`,
+                color: T.purple,
+                borderRadius: 6, padding: "5px 10px", cursor: "pointer",
+                fontFamily: T.fontSans, fontSize: 11, fontWeight: 700, letterSpacing: 0.5,
+                display: "flex", alignItems: "center", gap: 5,
+                boxShadow: `0 0 10px ${T.purpleDim}`,
+                transition: "all 0.2s ease",
+              }}
+            >
+              <span>🧠</span>
+              <span>AI COPILOT</span>
+              <span style={{
+                background: T.purple,
+                color: "#05080c", borderRadius: 4, padding: "1px 4px", fontSize: 9, fontWeight: 900
+              }}>
+                CHAT
+              </span>
             </button>
           </div>
 
@@ -926,6 +957,66 @@ export default function App() {
           onClose={() => setAnalyzing(null)}
         />
       )}
+
+      {/* ── Floating AI Analyst Trigger Button ─────────────────────────────────── */}
+      {!aiChatOpen && (
+        <button
+          id="floating-ai-trigger"
+          onClick={() => {
+            SoundFX.playClick();
+            setAiChatOpen(true);
+          }}
+          title="Chat with AI Desk Analyst (Hotkey: C)"
+          style={{
+            position: "fixed",
+            bottom: 24,
+            right: 24,
+            zIndex: 999,
+            background: `linear-gradient(135deg, ${T.bg2}, ${T.bg1})`,
+            border: `1px solid ${T.greenMid}`,
+            borderRadius: 30,
+            padding: "10px 18px",
+            color: T.green,
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            cursor: "pointer",
+            boxShadow: `0 6px 20px rgba(0,0,0,0.5), ${T.greenGlow}`,
+            fontFamily: T.fontSans,
+            fontWeight: 800,
+            fontSize: 12,
+            letterSpacing: 1,
+            transition: "transform 0.2s ease, box-shadow 0.2s ease",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = "scale(1.05)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = "scale(1)";
+          }}
+        >
+          <span style={{ fontSize: 18 }}>🧠</span>
+          <span>AI DESK ANALYST</span>
+          <span style={{
+            width: 8, height: 8, borderRadius: "50%", background: T.green,
+            boxShadow: `0 0 8px ${T.green}`,
+          }} />
+        </button>
+      )}
+
+      {/* ── AI Desk Analyst Chat Drawer ───────────────────────────────────────── */}
+      <AIChatDrawer
+        isOpen={aiChatOpen}
+        onClose={() => setAiChatOpen(false)}
+        btcPrice={btcPrice}
+        marketIv={marketIv}
+        marketContext={marketContext}
+        accountInfo={accountInfo}
+        positions={positions}
+        opportunities={opportunities}
+        maxPain={maxPain}
+        deltaHedge={deltaHedge}
+      />
 
       {/* ── Global styles ────────────────────────────────────────────────────── */}
       <style>{`

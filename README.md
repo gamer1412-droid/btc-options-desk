@@ -146,7 +146,11 @@ Endpoints ที่อ่านบัญชี, เรียก AI และส�
 - **Dynamic Delta Hedging Assistant** — คำนวณ Net Portfolio Delta แบบ Real-time พร้อมระบุ Lot และ Notional USD ที่ต้องเปิด Long/Short บน BTCUSDT Perpetual Futures เพื่อ Rebalance เป็น Delta-Neutral ทันที
 - **Max Pain Strike Analysis** — คำนวณจุด Strike ที่ทำให้ Option Buyers ขาดทุนสูงสุด (Pinning Effect ก่อนวันหมดอายุ)
 - **Multi-Dimensional Stress Matrix** — จำลองพอร์ตภายใต้ Spot Shock (±5%, ±10%, ±20%) ผูกกับ IV Vol Shock (+25 Vol pts Crash Scenario)
+- **Interactive AI Desk Analyst (War Room Chat)** — พูดคุยปรึกษากลยุทธ์กับ AI นักวิเคราะห์ประจำโต๊ะเทรดได้ตลอดเวลา:
+  - **บน Web Dashboard:** กดปุ่ม **"🧠 AI COPILOT"** ที่ Header หรือปุ่ม Floating ด้านล่างขวา (หรือกด Hotkey `C`) เพื่อเปิดห้องแชทพร้อม Live Context (AI รู้ราคา BTC, Greeks, DVOL, VRP, Positions สดๆ ไม่ต้องพิมพ์บอก)
+  - **บน Telegram Bot:** พิมพ์ `/ai <คำถาม>` หรือพิมพ์คุยภาษาไทยกับบอทในแชทได้โดยตรง AI จะวิเคราะห์และตอบกลับแบบเจาะจงกลยุทธ์ทันที
 - **Two-Way Interactive Telegram Webhook** — พิมพ์สั่งบอทใน Telegram ได้โดยตรง:
+  - `/ai <คำถาม>` — ปรึกษาคำถามการเทรดและความเสี่ยงกับ AI
   - `/status` — ตรวจสอบสถานะบัญชี Margin & Capacity
   - `/pnl` — สรุปกำไรขาดทุนและ Greeks พอร์ต
   - `/scan` — สแกนโอกาส Short Strangle, Iron Condor, Short Put ล่าสุด

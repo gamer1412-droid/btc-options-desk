@@ -57,19 +57,25 @@ export function escapeHtml(str) {
 // Used in AnalysisPanel to render AI text without XSS risk.
 // Only injects HTML for patterns WE define — not from raw AI output.
 export function renderAnalysisHtml(rawText) {
+  if (!rawText) return "";
   const escaped = escapeHtml(rawText);
 
   return escaped
+    // Headers ### Title
+    .replace(/^### (.*?)$/gm, `<div style="color:${T.green};font-family:${T.font};font-size:13px;font-weight:800;margin:10px 0 4px;letter-spacing:1px">$1</div>`)
+    .replace(/^## (.*?)$/gm, `<div style="color:${T.textPrimary};font-family:${T.font};font-size:14px;font-weight:900;margin:12px 0 6px;letter-spacing:1px">$1</div>`)
     // **bold** → styled strong
-    .replace(/\*\*(.*?)\*\*/g, `<strong style="color:${T.green};font-family:${T.font};letter-spacing:1px">$1</strong>`)
+    .replace(/\*\*(.*?)\*\*/g, `<strong style="color:${T.green};font-family:${T.font};letter-spacing:0.5px">$1</strong>`)
+    // `code` → styled inline code
+    .replace(/`([^`]+)`/g, `<code style="background:${T.bg3};color:${T.blue};padding:1px 5px;border-radius:4px;font-family:${T.font};font-size:12px">$1</code>`)
     // Action keywords
-    .replace(/(HOLD|CLOSE NOW|ROLL OUT|ADJUST)/g, (m) => {
-      const c = m === "HOLD" ? T.green : m === "CLOSE NOW" ? T.red : T.amber;
-      return `<span style="background:${c}22;color:${c};border:1px solid ${c}44;border-radius:4px;padding:2px 8px;font-family:${T.font};font-weight:700;font-size:12px;letter-spacing:1px">${m}</span>`;
+    .replace(/(HOLD|CLOSE NOW|ROLL OUT|ADJUST|OPEN SHORT PUT|OPEN STRANGLE|OPEN IRON CONDOR)/g, (m) => {
+      const c = m === "HOLD" || m.includes("OPEN") ? T.green : m === "CLOSE NOW" ? T.red : T.amber;
+      return `<span style="background:${c}22;color:${c};border:1px solid ${c}44;border-radius:4px;padding:2px 8px;font-family:${T.font};font-weight:700;font-size:11px;letter-spacing:1px">${m}</span>`;
     })
     // Status keywords
-    .replace(/(HEALTHY|WARNING|DANGER)/g, (m) => {
-      const c = m === "HEALTHY" ? T.green : m === "WARNING" ? T.amber : T.red;
-      return `<span style="background:${c}22;color:${c};border:1px solid ${c}44;border-radius:4px;padding:2px 8px;font-family:${T.font};font-weight:700;font-size:12px;letter-spacing:1px">${m}</span>`;
+    .replace(/(HEALTHY|WARNING|DANGER|NEUTRAL|CAUTION|HEDGE_REQUIRED)/g, (m) => {
+      const c = m === "HEALTHY" || m === "NEUTRAL" ? T.green : m === "WARNING" || m === "CAUTION" ? T.amber : T.red;
+      return `<span style="background:${c}22;color:${c};border:1px solid ${c}44;border-radius:4px;padding:2px 8px;font-family:${T.font};font-weight:700;font-size:11px;letter-spacing:1px">${m}</span>`;
     });
 }

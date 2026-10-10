@@ -53,16 +53,17 @@ export default async function handler(req, res) {
     if (cmd === "/start" || cmd === "/help") {
       replyText = `⚡ *BTC Options Desk Interactive Bot*
 ━━━━━━━━━━━━━━━━━━━━━
-บอทพร้อมรับคำสั่งตรวจสอบพอร์ตและสแกนความเสี่ยงตลอด 24/7
+บอทพร้อมรับคำสั่งตรวจสอบพอร์ตและสนทนากับ AI นักวิเคราะห์ตลอด 24/7
 
 คำสั่งที่สามารถใช้งานได้:
+• \`/ai <คำถาม>\` หรือพิมพ์ถามภาษาไทยได้โดยตรง — สนทนากับ AI นักวิเคราะห์
 • \`/status\` หรือ \`/pnl\` — สรุปราคา BTC, จำนวนสัญญา, PnL และ Margin
 • \`/scan\` — สแกนหาออปชันที่น่าสนใจ (Strangle / Iron Condor)
 • \`/risk\` หรือ \`/hedge\` — เช็กความเสี่ยงพอร์ตและคำแนะนำ Delta Hedge
 • \`/dvol\` — เช็กดัชนี Deribit DVOL และ Variance Risk Premium (VRP)
 • \`/help\` — แสดงคำแนะนำการใช้งาน
 ━━━━━━━━━━━━━━━━━━━━━
-_พิมพ์คำสั่งที่ต้องการได้เลยครับ_`;
+_พิมพ์คำถามหรือคำสั่งที่ต้องการคุยกับ AI ได้ทันทีครับ_`;
     } else if (cmd === "/status" || cmd === "/pnl") {
       try {
         const spotRes = await fetch("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT");
@@ -122,9 +123,69 @@ _พิมพ์คำสั่งที่ต้องการได้เล�
 • Delta ~0.20 (Balanced Zone)
 • สภาพคล่อง Bid/Ask Spread < 5%
 
-✨ แนะนำเปิดแอปผ่าน Dashboard เพื่อดูตาราง Strangle และ Iron Condor ฉบับเต็มพร้อมกราฟ Payoff`;
+✨ แนะนำเปิดแอปผ่าน Dashboard เพื่อดูตาราง Strangle และ Iron Condor ฉบับเต็มพร้อมกราฟ Payoff หรือพิมพ์คุยกับ AI ได้เลย`;
     } else {
-      replyText = `❓ ไม่รู้จักคำสั่ง \`${rawText}\` กรุณาพิมพ์ \`/help\` เพื่อดูคำสั่งทั้งหมด`;
+      // ─── Free-Form AI Options Desk Analyst Chat ──────────────────────────
+      const userQuery = rawText.startsWith("/ai") || rawText.startsWith("/ask")
+        ? rawText.replace(/^\/(ai|ask)\s*/i, "").trim()
+        : rawText;
+
+      const groqKey = process.env.GROQ_API_KEY;
+      if (groqKey && userQuery.length > 0) {
+        try {
+          const [spotRes, dvolRes] = await Promise.allSettled([
+            fetch("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT").then(r => r.json()),
+            fetch("https://www.deribit.com/api/v2/public/get_volatility_index_data?currency=BTC&resolution=3600").then(r => r.json()),
+          ]);
+
+          const currentBtc = spotRes.status === "fulfilled" ? parseFloat(spotRes.value?.price) : null;
+          let dvolVal = null;
+          if (dvolRes.status === "fulfilled" && dvolRes.value?.result?.data?.length) {
+            const lastCandle = dvolRes.value.result.data.slice(-1)[0];
+            dvolVal = lastCandle ? Number(lastCandle[4]) : null;
+          }
+
+          const systemPrompt = `You are the Lead Institutional BTC Options Desk Analyst for a systematic trading team.
+Desk Trading Rules v3.0:
+- Primary strategies: Short Strangle (30-45 DTE, Delta 0.15-0.20), Iron Condor (defined-risk), Short Put (Delta 0.15-0.25).
+- Profit Target: Take Profit at 35% of initial premium (or 30% in first 4 days).
+- Stop-Loss: Hard Stop at 2x initial premium or when Delta hits 0.52.
+- Time Exit: Close position when DTE <= 2 days to avoid pin risk.
+- Portfolio Capacity: 35% margin limit ceiling.
+- Live Market Context: BTC Spot Price = ${currentBtc ? `$${currentBtc.toLocaleString()}` : "N/A"}, Deribit 30D DVOL = ${dvolVal ? `${dvolVal.toFixed(1)}%` : "N/A"}.
+
+Answer the user's trading or risk inquiry directly, clearly, concisely, and practically in Thai. Use structured bullet points where helpful. Keep response within 180 words so it is easy to read on mobile Telegram.`;
+
+          const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${groqKey}`,
+            },
+            body: JSON.stringify({
+              model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+              messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userQuery },
+              ],
+              max_tokens: 650,
+              temperature: 0.65,
+            }),
+          });
+
+          if (groqRes.ok) {
+            const groqJson = await groqRes.json();
+            const aiText = groqJson.choices?.[0]?.message?.content || "";
+            replyText = `🧠 *AI OPTIONS DESK ANALYST*\n━━━━━━━━━━━━━━━━━━━━━\n${aiText}`;
+          } else {
+            replyText = `❓ ไม่รู้จักคำสั่ง \`${rawText}\` กรุณาพิมพ์ \`/help\` เพื่อดูคำสั่งทั้งหมด หรือพิมพ์ \`/ai <คำถาม>\` เพื่อคุยกับ AI`;
+          }
+        } catch (err) {
+          replyText = `⚠️ AI Analyst ขัดข้องชั่วคราว: ${err.message}`;
+        }
+      } else {
+        replyText = `❓ ไม่รู้จักคำสั่ง \`${rawText}\` กรุณาพิมพ์ \`/help\` เพื่อดูคำสั่งทั้งหมด หรือพิมพ์ \`/ai <คำถาม>\` เพื่อคุยกับ AI`;
+      }
     }
 
     try {

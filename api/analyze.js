@@ -24,15 +24,37 @@ export default async function handler(req, res) {
     });
   }
 
-  const { prompt } = req.body || {};
-  if (!prompt) return res.status(400).json({ error: { message: "Missing 'prompt' in request body" } });
-  if (typeof prompt !== "string" || prompt.length > 12_000) {
-    return res.status(400).json({ error: { message: "Prompt exceeds 12,000 characters" } });
+  const { prompt, messages: rawMessages, systemPrompt } = req.body || {};
+
+  let chatMessages = [];
+  if (Array.isArray(rawMessages) && rawMessages.length > 0) {
+    if (systemPrompt && typeof systemPrompt === "string") {
+      chatMessages.push({ role: "system", content: systemPrompt });
+    }
+    for (const m of rawMessages) {
+      if (m && typeof m.content === "string") {
+        chatMessages.push({
+          role: m.role === "assistant" ? "assistant" : m.role === "system" ? "system" : "user",
+          content: m.content.slice(0, 8000),
+        });
+      }
+    }
+  } else if (prompt && typeof prompt === "string") {
+    if (systemPrompt && typeof systemPrompt === "string") {
+      chatMessages.push({ role: "system", content: systemPrompt });
+    }
+    chatMessages.push({ role: "user", content: prompt.slice(0, 12000) });
+  } else {
+    return res.status(400).json({ error: { message: "Missing 'prompt' or 'messages' in request body" } });
   }
 
   // 1. If Anthropic Claude API Key is provided, use Claude
   if (anthropicApiKey && !groqApiKey) {
     try {
+      const claudeMessages = chatMessages
+        .filter(m => m.role !== "system")
+        .map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content }));
+
       const response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
@@ -42,9 +64,10 @@ export default async function handler(req, res) {
         },
         body: JSON.stringify({
           model: "claude-3-5-sonnet-20241022",
-          max_tokens: 1200,
+          max_tokens: 1500,
           temperature: 0.7,
-          messages: [{ role: "user", content: prompt }],
+          system: systemPrompt || undefined,
+          messages: claudeMessages.length > 0 ? claudeMessages : [{ role: "user", content: prompt || "Hello" }],
         }),
       });
 
@@ -109,9 +132,9 @@ export default async function handler(req, res) {
         },
         body: JSON.stringify({
           model: modelName,
-          max_tokens: 1200,
+          max_tokens: 1500,
           temperature: 0.7,
-          messages: [{ role: "user", content: prompt }],
+          messages: chatMessages,
         }),
       });
 
